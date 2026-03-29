@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>SFM Wien | Facility Control Hub</title>
+    <link rel="icon" type="image/png" href="./logo.png">
+    <link rel="manifest" href="/manifest.json">
 
     <!-- Essential Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -51,13 +53,33 @@
         /* PRINT MASTER CSS - Final Branding Specification */
         @page { size: A4; margin: 15mm; }
         @media print {
+            /* General Hiding */
             body * { visibility: hidden; }
-            #print-report, #print-report * { visibility: visible; }
-            #print-report { 
+            .no-print { display: none !important; }
+            
+            /* Print Mode: Report */
+            body.print-mode-report #print-report, body.print-mode-report #print-report * { visibility: visible; }
+            body.print-mode-report #print-report { 
                 position: absolute; left: 0; top: 0; width: 100%; display: block !important; 
                 padding: 0; margin: 0; background: white; 
             }
-            .no-print { display: none !important; }
+            
+            /* Print Mode: QR Schild */
+            body.print-mode-qr #print-qr-schild, body.print-mode-qr #print-qr-schild * { visibility: visible; }
+            body.print-mode-qr #print-qr-schild { 
+                position: absolute; left: 0; top: 0; width: 100%; display: flex !important; 
+                flex-direction: column; align-items: center; justify-content: flex-start; margin: 0; padding-top: 40px; background: white; 
+            }
+            body.print-mode-qr #p-qr-image { 
+                display: block !important; width: 300px !important; height: 300px !important; margin: 0 auto !important; object-fit: contain; 
+            }
+            
+            /* Fallback support if no class is present */
+            body:not(.print-mode-qr):not(.print-mode-report) #print-report, body:not(.print-mode-qr):not(.print-mode-report) #print-report * { visibility: visible; }
+            body:not(.print-mode-qr):not(.print-mode-report) #print-report { 
+                position: absolute; left: 0; top: 0; width: 100%; display: block !important; 
+                padding: 0; margin: 0; background: white; 
+            }
             table { width: 100%; border-collapse: collapse; margin-top: 25px; table-layout: fixed; }
             th, td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; font-size: 10px !important; color: #333; }
             th { background: #f8f9fa !important; color: #000; font-weight: bold; }
@@ -88,13 +110,27 @@
     <div id="modal-container" class="hidden fixed inset-0 z-[1500] bg-black/60 backdrop-blur-lg flex items-center justify-center p-6 animate-in fade-in duration-300 no-print"></div>
     <div id="toast-container" class="fixed bottom-10 right-10 z-[2000] flex flex-col gap-4 pointer-events-none no-print"></div>
 
+    <!-- Hidden Print Container: QR Schild -->
+    <div id="print-qr-schild" class="hidden bg-white text-black min-h-screen p-10 flex flex-col items-center justify-center text-center">
+        <img src="./logo.png" alt="SFM Logo" style="max-width: 250px; margin-bottom: 30px;">
+        <h1 id="p-qr-location" style="font-size: 42px; font-weight: 900; font-family: 'Outfit', sans-serif; text-transform: uppercase; margin-bottom: 5px;">OBJEKTNAME</h1>
+        <p id="p-qr-address" style="font-size: 20px; color: #64748b; font-weight: 600; margin-bottom: 40px; text-transform: uppercase; letter-spacing: 0.1em;">Adresse</p>
+        <img id="p-qr-image" src="" alt="QR Code" style="width: 450px; height: 450px; border: 3px solid #f1f5f9; padding: 25px; border-radius: 48px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);">
+        <div style="margin-top: 50px; padding: 20px 40px; background: #0056b3; border-radius: 100px; color: white;">
+            <p style="font-size: 16px; font-weight: 900; letter-spacing: 0.3em; text-transform: uppercase; margin: 0;">BITTE FÜR ZEITERFASSUNG SCANNEN</p>
+        </div>
+        <div style="margin-top: 50px; font-size: 12px; color: #94a3b8; font-weight: 600; font-style: italic;">
+            Schäffer Facility Management GmbH | www.s-fm.at
+        </div>
+    </div>
+
     <!-- Hidden Print Container: Branded LEISTUNGSNACHWEIS -->
     <div id="print-report" class="hidden bg-white text-black min-h-screen p-10 flex flex-col">
         <div class="print-header">
             <div class="print-logo-box">
-                <img id="logo-print" src="/logo.png" alt="SFM Logo">
+                <img id="logo-print" src="./logo.png" alt="SFM Logo" width="150" style="width: 150px; min-width: 150px; max-width: 150px;">
             </div>
-            <div class="print-brand">SFM WIEN</div>
+            <div class="print-brand">Schäffer Facility Management GmbH</div>
             <div class="print-report-type uppercase">Leistungsnachweis</div>
             
             <table class="print-meta-table">
@@ -109,8 +145,8 @@
         <div id="p-report-total-box" class="print-total-bar italic uppercase">Gesamtstunden: 0.00 h</div>
         
         <div class="print-footer">
-             <div>SFM Facility Services GmbH | Wienerbergstraße 11, AT-1100 Wien</div>
-             <div>www.sfm-facility.at | service@sfm-facility.at</div>
+             <div>Schäffer Facility Management GmbH | Geiselbergstraße 48/2/1, 1110 Wien</div>
+             <div>www.s-fm.at | office@s-fm.at</div>
         </div>
     </div>
 

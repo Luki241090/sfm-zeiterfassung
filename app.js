@@ -14,7 +14,8 @@ const App = {
         filteredReports: [],
         locationsData: [],
         activeLogs: [],
-        map: null
+        map: null,
+        deferredPrompt: null
     },
 
     init: async () => {
@@ -26,8 +27,19 @@ const App = {
         if (savedUser) {
             try {
                 App.state.currentUser = JSON.parse(savedUser);
+                const p = await SupabaseDB.auth.getProfile(App.state.currentUser.id);
+                App.state.currentUser.full_name = p.full_name;
+                App.state.currentUser.role = p.role;
+                App.userRole = p.role;
+                App.state.currentUser.email = p.email || App.state.currentUser.email;
+                sessionStorage.setItem('sfm_user', JSON.stringify(App.state.currentUser));
+                await App.actions.loadLocations();
                 await App.actions.syncActiveSession();
-                App.renderView('dashboard');
+                if (App.state.currentUser.role === 'admin' || App.state.currentUser.role === 'chef') {
+                    App.renderView('admin');
+                } else {
+                    App.renderView('scanner');
+                }
                 App.actions.checkWorkerWarning();
             } catch(e) {
                 sessionStorage.removeItem('sfm_user');
@@ -58,6 +70,7 @@ const App = {
     // --- VIEWS ---
     views: {
         login: (container) => {
+            if (document.getElementById('app')) document.getElementById('app').classList.remove('wider');
             container.innerHTML = `
                 <div class="flex-1 flex items-center justify-center p-8 bg-slate-100 italic">
                     <div class="w-full max-sm p-12 bg-white rounded-[64px] shadow-premium animate-in zoom-in-95">
@@ -77,6 +90,7 @@ const App = {
         },
 
         dashboard: (container) => {
+            if (document.getElementById('app')) document.getElementById('app').classList.remove('wider');
             const user = App.state.currentUser;
             if (!user) return App.renderView('login');
 
@@ -107,6 +121,7 @@ const App = {
         },
 
         scanner: (container, params = {}) => {
+            if (document.getElementById('app')) document.getElementById('app').classList.remove('wider');
             App.state.activeScan.category = params.category || 'DIENST';
             App.state.activeScan.isCheckout = !!params.isCheckout;
             
@@ -144,6 +159,7 @@ const App = {
         },
 
         admin: (container) => {
+            if (document.getElementById('app')) document.getElementById('app').classList.add('wider');
             container.innerHTML = `
                 <div class="flex h-screen w-full overflow-hidden bg-slate-50 text-left no-print scale-95 sm:scale-100 origin-top-left">
                     <aside class="w-84 bg-primary text-white flex flex-col p-12 shrink-0 shadow-2xl z-50">
@@ -158,7 +174,9 @@ const App = {
                             ${App.ui.sidebarItem('👥', 'Personalstamm', 'employees')}
                             ${App.ui.sidebarItem('🏷️', 'Objekt-Katalog', 'locations')}
                         </nav>
-                        <button class="mt-auto py-5 bg-white/10 rounded-[28px] font-black text-[10px] uppercase font-sans tracking-widest transition-all hover:bg-white/20" onclick="App.renderView('dashboard')">ZURÜCK DAHSBOARD</button>
+                        
+                        <button id="pwa-install-side" class="install-pwa-btn hidden mb-4 py-4 bg-white/10 rounded-[28px] font-black text-[10px] uppercase font-sans tracking-widest transition-all hover:bg-white/20 flex items-center justify-center gap-2" onclick="App.actions.installPWA()">📲 INSTALLIEREN</button>
+                        <button class="mt-2 py-5 bg-white/10 rounded-[28px] font-black text-[10px] uppercase font-sans tracking-widest transition-all hover:bg-white/20" onclick="App.renderView('dashboard')">ZURÜCK DAHSBOARD</button>
                     </aside>
                     <section id="admin-content" class="flex-1 overflow-y-auto p-16 bg-white/50 backdrop-blur-xl"></section>
                 </div>
@@ -229,19 +247,36 @@ const App = {
                 </div>
             `;
             try {
-                App.state.reportsData = await SupabaseDB.time_logs.getAll() || [];
+                App.state.reportsData = await SupabaseDB.time_logs.getAllForAdmin() || [];
                 App.actions.filterReports();
             } catch (err) { App.toast("Sync Fehler"); }
         },
 
         adminLocations: async (content) => {
-            content.innerHTML = `<div class="max-w-6xl mx-auto space-y-12 animate-in slide-in-from-right-10 duration-500 italic"><div class="px-4"><h2 class="text-6xl font-black tracking-tighter text-slate-900 mb-2 italic italic uppercase">Objekt-Portfolio</h2><p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest px-1 italic">FACILITY DATENBANK</p></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-12 text-left"><div class="bg-white p-12 rounded-[56px] shadow-premium border border-slate-50 flex flex-col gap-8 text-left"><h3 class="text-xs font-black text-primary uppercase tracking-widest italic tracking-[0.3em]">Setup</h3><div class="space-y-4 text-left font-bold"><input id="loc-customer-num" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Kundennummer"><input id="loc-name" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Name des Objekts"><input id="loc-address" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Genaue Adresse"><input id="loc-floor" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Etage / Einheit"><input id="loc-contact" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Kunden-Ansprechpartner"><div class="flex gap-4"><input id="loc-lat" class="w-1/2 p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Breite (Lat)"><input id="loc-lng" class="w-1/2 p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Länge (Lng)"></div></div><button id="qr-save-btn" class="mt-8 py-7 bg-primary text-white font-black rounded-[36px] shadow-2xl tracking-widest text-[11px] uppercase active:scale-95 transition-all flex items-center justify-center gap-4" onclick="App.actions.saveLocation()">DATENSATZ SPEICHERN</button></div><div id="qr-result" class="bg-white p-12 rounded-[56px] shadow-premium flex flex-col items-center justify-center min-h-[450px]"></div></div><div class="bg-white rounded-[70px] shadow-premium overflow-hidden p-12 border border-white mt-12"><table class="w-full text-left font-bold border-separate border-spacing-y-4"><thead class="text-slate-200 uppercase text-[9px] tracking-[0.4em] italic text-left"><tr><th class="p-6">Bezeichnung</th><th class="p-6">Lage / Adresse</th><th class="p-6 text-center">QR Print</th></tr></thead><tbody id="locations-list"></tbody></table></div></div>`;
+            content.innerHTML = `<div class="max-w-6xl mx-auto space-y-12 animate-in slide-in-from-right-10 duration-500 italic"><div class="px-4"><h2 class="text-6xl font-black tracking-tighter text-slate-900 mb-2 italic italic uppercase">Objekt-Portfolio</h2><p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest px-1 italic">FACILITY DATENBANK</p></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-12 text-left"><div class="bg-white p-12 rounded-[56px] shadow-premium border border-slate-50 flex flex-col gap-8 text-left"><h3 class="text-xs font-black text-primary uppercase tracking-widest italic tracking-[0.3em]">Setup</h3><div class="space-y-4 text-left font-bold"><input id="loc-customer-num" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Kundennummer"><input id="loc-name" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Name des Objekts"><input id="loc-address" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Genaue Adresse" onblur="App.actions.geocodeAddress()"><input id="loc-floor" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Etage / Einheit"><input id="loc-contact" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Kunden-Ansprechpartner"><div class="flex gap-4"><input id="loc-lat" class="w-1/2 p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Breite (Lat)"><input id="loc-lng" class="w-1/2 p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Länge (Lng)"></div></div><button id="qr-save-btn" class="mt-8 py-7 bg-primary text-white font-black rounded-[36px] shadow-2xl tracking-widest text-[11px] uppercase active:scale-95 transition-all flex items-center justify-center gap-4" onclick="App.actions.saveLocation()">DATENSATZ SPEICHERN</button></div><div id="qr-result" class="bg-white p-12 rounded-[56px] shadow-premium flex flex-col items-center justify-center min-h-[450px]"></div></div><div class="bg-white rounded-[70px] shadow-premium overflow-hidden p-12 border border-white mt-12"><table class="w-full text-left font-bold border-separate border-spacing-y-4"><thead class="text-slate-200 uppercase text-[9px] tracking-[0.4em] italic text-left"><tr><th class="p-6">Bezeichnung</th><th class="p-6">Lage / Adresse</th><th class="p-6 text-center">Aktionen</th></tr></thead><tbody id="locations-list"></tbody></table></div></div>`;
             App.actions.loadLocations();
         },
 
         adminEmployees: async (c) => {
-            c.innerHTML = `<div class="p-8 flex justify-between items-center italic mb-4"><h2 class="text-6xl font-black tracking-tighter italic uppercase italic">Personalstamm</h2><button class="bg-primary px-10 py-6 rounded-[32px] text-white font-black uppercase text-[11px] tracking-widest shadow-2xl transition-all active:scale-95" onclick="App.actions.openAddEmployee()">+ Neu</button></div><div class="bg-white rounded-[64px] shadow-premium overflow-hidden p-12 mt-8 border border-white"><table class="w-full text-left font-bold border-separate border-spacing-y-4"><thead class="text-slate-200 uppercase text-[10px] tracking-[0.4em] italic text-left"><tr><th class="p-6">Echter Name</th><th class="p-6">Account-E-Mail</th><th class="p-6">Account-Rolle</th></tr></thead><tbody id="member-list"></tbody></table></div>`;
-            try { const l = await SupabaseDB.profiles.getAll(); document.getElementById('member-list').innerHTML = l.map(u => `<tr class="bg-white hover:bg-slate-50 transition-all border-b border-slate-50"><td class="p-7 text-2xl font-black italic tracking-tighter text-slate-800 italic uppercase">${u.full_name}</td><td class="p-7 text-slate-400 font-medium">${u.email}</td><td class="p-7"><span class="bg-blue-50 text-blue-600 px-6 py-2 rounded-full text-[10px] uppercase font-black tracking-widest">${u.role}</span></td></tr>`).join(''); } catch(e) { document.getElementById('member-list').innerHTML = `<tr><td colspan="3" class="p-10 text-slate-300 italic text-left uppercase font-black">Sync-Fehler.</td></tr>`; }
+            c.innerHTML = `
+                <div class="p-8 flex justify-between items-center italic mb-4">
+                    <h2 class="text-6xl font-black tracking-tighter italic uppercase">Personalstamm</h2>
+                    <button class="bg-primary px-10 py-6 rounded-[32px] text-white font-black uppercase text-[11px] tracking-widest shadow-2xl transition-all active:scale-95" onclick="App.actions.openEditEmployee()">+ NEU ANLEGEN</button>
+                </div>
+                <div class="bg-white rounded-[64px] shadow-premium overflow-hidden p-12 mt-8 border border-white">
+                    <table class="w-full text-left font-bold border-separate border-spacing-y-4">
+                        <thead class="text-slate-200 uppercase text-[10px] tracking-[0.4em] italic text-left">
+                            <tr>
+                                <th class="p-6">Echter Name</th>
+                                <th class="p-6">Account-E-Mail</th>
+                                <th class="p-6 text-center">Rolle</th>
+                                <th class="p-6 text-right">Aktionen</th>
+                            </tr>
+                        </thead>
+                        <tbody id="member-list"></tbody>
+                    </table>
+                </div>`;
+            App.actions.loadEmployees();
         }
     },
 
@@ -260,21 +295,70 @@ const App = {
 
     // --- LOGIC ACTIONS ---
     actions: {
+        installPWA: async () => {
+            const promptEvent = App.state.deferredPrompt;
+            if (!promptEvent) return;
+            promptEvent.prompt();
+            const { outcome } = await promptEvent.userChoice;
+            console.log('User choice:', outcome);
+            App.state.deferredPrompt = null;
+            // Hide all install buttons
+            document.querySelectorAll('.install-pwa-btn').forEach(btn => btn.classList.add('hidden'));
+        },
+        geocodeAddress: async () => {
+            const addr = document.getElementById('loc-address').value.trim();
+            if (addr.length < 5) return;
+            try {
+                const ep = "https://nominatim.openstreetmap.org/search?format=json&q=" + encodeURIComponent(addr);
+                const r = await fetch(ep);
+                const d = await r.json();
+                if (d && d.length > 0) {
+                    document.getElementById('loc-lat').value = parseFloat(d[0].lat).toFixed(6);
+                    document.getElementById('loc-lng').value = parseFloat(d[0].lon).toFixed(6);
+                    App.toast("📍 Koordinaten gefunden!");
+                }
+            } catch(e) { console.error("GEO ERR", e); }
+        },
         login: async () => {
              const email = document.getElementById('email-input').value.trim();
              const pass = document.getElementById('password-input').value;
              try {
-                const res = await Data.auth.login(email, pass);
-                let p = null; try { p = await SupabaseDB.auth.getProfile(res.user.id); } catch(e) {}
-                App.state.currentUser = { id: res.user.id, full_name: (p && p.full_name) || email, role: (p && p.role) || 'worker' };
+                const res = await SupabaseDB.auth.login(email, pass);
+                if (!res.user) throw new Error("Kein User vom Server retourniert.");
+                
+                let p = null;
+                try {
+                    p = await SupabaseDB.auth.getProfile(res.user.id);
+                } catch(profileErr) {
+                    console.warn("Profilabfrage fehlgeschlagen:", profileErr);
+                }
+                
+                App.state.currentUser = {
+                    id: res.user.id,
+                    name: (p && p.name) || (p && p.full_name) || email,
+                    full_name: (p && p.full_name) || (p && p.name) || email,
+                    role: (p && p.role) || 'worker',
+                    email: email
+                };
+                
+                App.userRole = App.state.currentUser.role;
                 sessionStorage.setItem('sfm_user', JSON.stringify(App.state.currentUser));
+                
                 await App.actions.syncActiveSession();
-                App.renderView('dashboard');
+                
+                if (App.userRole === 'admin' || App.userRole === 'chef') {
+                    App.renderView('admin');
+                } else {
+                    App.renderView('scanner');
+                }
                 App.actions.checkWorkerWarning();
-             } catch(e) { App.toast("Zugriff verweigert."); }
+             } catch(e) { 
+                 console.error("LOGIN FEHLER:", e);
+                 App.toast("Zugriff verweigert: " + (e.message || "Unbekannter Fehler")); 
+             }
         },
         
-        logout: async () => { await Data.auth.logout(); sessionStorage.removeItem('sfm_user'); App.state.activeSession = null; App.renderView('login'); },
+        logout: async () => { await SupabaseDB.auth.logout(); sessionStorage.removeItem('sfm_user'); App.state.activeSession = null; App.renderView('login'); },
 
         syncActiveSession: async () => {
              if (!App.state.currentUser) return;
@@ -314,7 +398,11 @@ const App = {
                 const u = App.state.currentUser; const s = App.state.activeScan;
                 const log = await SupabaseDB.time_logs.checkIn({ worker_id: u.id, location_id: s.locId, category: s.category });
                 App.state.activeSession = { id: log.id, name: s.locName, locationId: s.locId, startTime: log.start_time, hours: 0 };
-                App.toast(`✅ EINGELOGGT: ${s.locName}`); App.renderView('dashboard');
+                App.toast(`✅ EINGELOGGT: ${s.locName}`); if (App.state.currentUser.role === 'admin' || App.state.currentUser.role === 'chef') {
+                    App.renderView('admin');
+                } else {
+                    App.renderView('scanner');
+                }
              } catch (err) { App.toast("Fehler"); }
         },
 
@@ -364,11 +452,26 @@ const App = {
                              <div class="flex flex-col items-end gap-1">
                                 <span class="bg-success px-5 py-1.5 rounded-full text-[8px] font-black text-white uppercase tracking-widest animate-pulse">Live</span>
                                 <p class="text-[11px] font-bold text-slate-400 mt-2 italic">Dienstbeginn: ${new Date(log.start_time).toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'})}</p>
+                                <button class="mt-2 text-[10px] bg-red-100 text-red-600 px-4 py-2 rounded-xl font-bold uppercase active:scale-95 transition-all w-full text-center hover:bg-red-200 shadow-sm" onclick="App.actions.remoteCheckOut('${log.id}')">🛑 BEENDEN</button>
                              </div>
                         </div>
                      </div>
                 `).join('') || `<div class="p-16 text-center italic text-slate-200 uppercase tracking-widest font-black opacity-20 italic">Derzeit keine aktiven Einsatze</div>`;
              } catch(e) { console.error(e); }
+        },
+
+        remoteCheckOut: async (logId) => {
+             if(!confirm("Einsatz wirklich sofort beenden?")) return;
+             try {
+                 App.toast("🛑 Beende Einsatz...");
+                 await SupabaseDB.time_logs.checkOut(logId);
+                 App.toast("✅ Remote-Checkout erfolgreich.");
+                 if(typeof App.actions.loadMonitoringData === 'function') {
+                     App.actions.loadMonitoringData();
+                 }
+             } catch(e) {
+                 App.toast("❌ Fehler: " + e.message);
+             }
         },
 
         // --- FINAL REPRTING LOGIC ---
@@ -387,9 +490,69 @@ const App = {
                     <td class="p-7 text-slate-400 font-medium">${start.toLocaleDateString('de-AT')}</td>
                     <td class="p-7 text-slate-800 font-black italic text-sm text-left italic">${start.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'})} - ${end ? end.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'}) : '<span class="text-primary animate-pulse">AKTIV</span>'}</td>
                     <td class="p-7 text-center font-black italic text-slate-800 text-3xl italic">${h}h ${m}m</td>
+                    <td class="p-7 text-right">
+                        <button class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold p-3 rounded-2xl transition-all active:scale-95 shadow-sm text-[10px] uppercase" onclick="App.actions.editTimeLog('${log.id}')">✏️ Edit</button>
+                    </td>
                 </tr>`;
             }).join('');
-            container.innerHTML = `<table class="w-full text-left font-bold border-separate border-spacing-y-4"><thead class="text-slate-200 uppercase text-[10px] tracking-[0.4em] italic text-left"><tr><th class="p-7">Mitarbeiter</th><th class="p-7">Objekt</th><th class="p-7">Datum</th><th class="p-7">Zeitfenster</th><th class="p-7 text-center">Netto</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="bg-primary/5 rounded-[48px]"><td colspan="4" class="p-10 text-right text-slate-300 font-black uppercase tracking-[0.3em] italic">Gefilterte Gesamtstunden:</td><td class="p-10 text-center text-5xl font-black text-primary italic tracking-tighter">${totalHours.toFixed(2)} h</td></tr></tfoot></table>`;
+            container.innerHTML = `<table class="w-full text-left font-bold border-separate border-spacing-y-4"><thead class="text-slate-200 uppercase text-[10px] tracking-[0.4em] italic text-left"><tr><th class="p-7">Mitarbeiter</th><th class="p-7">Objekt</th><th class="p-7">Datum</th><th class="p-7">Zeitfenster</th><th class="p-7 text-center">Netto</th><th class="p-7 text-right">Aktion</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="bg-primary/5 rounded-[48px]"><td colspan="5" class="p-10 text-right text-slate-300 font-black uppercase tracking-[0.3em] italic">Gefilterte Gesamtstunden:</td><td class="p-10 text-center text-5xl font-black text-primary italic tracking-tighter">${totalHours.toFixed(2)} h</td></tr></tfoot></table>`;
+        },
+
+        editTimeLog: async (logId) => {
+             const log = App.state.reportsData.find(l => l.id === logId);
+             if(!log) return App.toast("Datensatz nicht gefunden!");
+             
+             const startObj = new Date(log.start_time);
+             const tzOffset = (startObj.getTimezoneOffset() * 60000);
+             const sDate = (new Date(startObj - tzOffset)).toISOString().slice(0,16); 
+             
+             let eDate = '';
+             if (log.end_time) {
+                 const endObj = new Date(log.end_time);
+                 const tzOffsetE = (endObj.getTimezoneOffset() * 60000);
+                 eDate = (new Date(endObj - tzOffsetE)).toISOString().slice(0,16);
+             }
+             
+             const m = document.getElementById('modal-container'); 
+             m.classList.remove('hidden');
+             m.innerHTML = `
+                 <div class="bg-white p-12 sm:p-14 rounded-[70px] w-full max-w-sm text-center flex flex-col items-center gap-6 shadow-3xl animate-in zoom-in-95 duration-200">
+                     <span class="text-6xl p-6 bg-primary/5 rounded-full mb-1">⏱️</span>
+                     <h2 class="text-3xl font-black italic text-slate-900 uppercase tracking-tighter">Zeit Editor</h2>
+                     <div class="w-full text-left space-y-4">
+                         <div>
+                             <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2 italic">Startzeit</label>
+                             <input type="datetime-local" id="edit-start" class="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none shadow-inner" value="${sDate}">
+                         </div>
+                         <div class="pt-2">
+                             <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2 italic">Endzeit</label>
+                             <input type="datetime-local" id="edit-end" class="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none shadow-inner" value="${eDate}">
+                             <p class="px-2 pt-2 text-[9px] text-slate-300 italic">Leer lassen, wenn die Schicht noch läuft.</p>
+                         </div>
+                     </div>
+                     <div class="flex gap-4 w-full mt-2">
+                         <button class="flex-1 py-6 bg-slate-100 rounded-[28px] text-slate-400 font-black uppercase text-[10px] active:scale-95 transition-all" onclick="document.getElementById('modal-container').classList.add('hidden')">ABBRECHEN</button>
+                         <button class="flex-1 py-6 bg-primary text-white rounded-[28px] font-black uppercase text-[10px] shadow-2xl active:scale-95 transition-all" onclick="App.actions.saveTimeLog('${log.id}')">SPEICHERN</button>
+                     </div>
+                 </div>
+             `;
+        },
+
+        saveTimeLog: async (logId) => {
+             const sVal = document.getElementById('edit-start').value;
+             let eVal = document.getElementById('edit-end').value;
+             if (!sVal) return App.toast("Startzeit fehlt!");
+             try {
+                App.toast("⚙️ Speichere Zeiten...");
+                const updates = { start_time: new Date(sVal).toISOString(), end_time: eVal ? new Date(eVal).toISOString() : null };
+                await SupabaseDB.time_logs.update(logId, updates);
+                App.toast("✅ Zeit aktualisiert!");
+                document.getElementById('modal-container').classList.add('hidden');
+                App.state.reportsData = await SupabaseDB.time_logs.getAllForAdmin();
+                App.actions.filterReports();
+             } catch(e) {
+                App.toast("❌ Fehler beim Speichern.");
+             }
         },
 
         filterReports: () => {
@@ -413,7 +576,7 @@ const App = {
              document.getElementById('p-report-location').textContent = locSearch ? locSearch.toUpperCase() : "ALLE AKTIVEN OBJEKTE";
              
              const contact = App.state.locationsData.find(l => l.name.toLowerCase() === locSearch.toLowerCase());
-             document.getElementById('p-report-contact').textContent = contact ? contact.contact_person : "SFM ZENTRALE / WIEN";
+             document.getElementById('p-report-contact').textContent = contact ? contact.contact_person : "Schäffer Facility Management GmbH";
              
              const monthSelect = document.getElementById('report-month');
              const monthText = monthSelect.options[monthSelect.selectedIndex].text;
@@ -437,24 +600,249 @@ const App = {
         loadLocations: async () => {
             try {
                 const list = await SupabaseDB.locations.getAll(); App.state.locationsData = list || [];
-                document.getElementById('locations-list').innerHTML = list.map(loc => `<tr class="bg-white hover:bg-slate-50 transition-all border-b border-slate-50"><td class="p-7 text-left"><div class="flex flex-col"><span class="text-2xl font-black italic tracking-tighter text-slate-800 italic uppercase italic">${loc.name}</span><span class="text-[9px] text-slate-300 font-bold uppercase tracking-widest italic tracking-[0.2em]">${loc.customer_number || '-'}</span></div></td><td class="p-7 text-slate-500 font-medium italic">${loc.address}</td><td class="p-7 text-center"><button class="bg-slate-100 p-4 rounded-3xl hover:bg-primary hover:text-white transition-all scale-90 active:scale-75 shadow-sm" onclick="App.actions.previewQR('${loc.id}', '${loc.name}', '${loc.address}')">🖨️ PRINTER</button></td></tr>`).join('');
+                const role = App.state.currentUser?.role || 'worker';
+                const isAdmin = role === 'admin' || role === 'chef';
+                
+                document.getElementById('locations-list').innerHTML = list.map(loc => `
+                    <tr class="bg-white hover:bg-slate-50 transition-all border-b border-slate-50">
+                        <td class="p-7 text-left">
+                            <div class="flex flex-col">
+                                <span class="text-2xl font-black italic tracking-tighter text-slate-800 uppercase italic">${loc.name}</span>
+                                <span class="text-[9px] text-slate-300 font-bold uppercase tracking-widest italic tracking-[0.2em]">${loc.customer_number || '-'}</span>
+                            </div>
+                        </td>
+                        <td class="p-7 text-slate-500 font-medium italic">${loc.address}</td>
+                        <td class="p-7 text-right align-middle space-x-2">
+                            <button class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold p-3 rounded-2xl transition-all active:scale-95 shadow-sm text-[10px] uppercase" onclick="App.actions.previewQR('${loc.id}', '${loc.name}', '${loc.address}')">🖨️ PRINTER</button>
+                            ${isAdmin ? `<button class="bg-red-50 hover:bg-red-500 hover:text-white text-red-500 font-bold p-3 rounded-2xl transition-all active:scale-95 shadow-sm text-[10px] uppercase" onclick="App.actions.deleteLocation('${loc.id}', '${loc.name.replace(/'/g, "\\'")}')">🗑️ Löschen</button>` : ''}
+                        </td>
+                    </tr>
+                `).join('');
             } catch (err) {}
+        },
+
+        deleteLocation: async (id, name) => {
+             const role = App.state.currentUser?.role;
+             if(role !== 'admin' && role !== 'chef') {
+                 return App.toast("❌ Keine Berechtigung!");
+             }
+             
+             if(!confirm(`Möchtest du das Objekt [${name}] wirklich unwiderruflich löschen? Alle zugehörigen QR-Codes werden damit ungültig.`)) {
+                 return;
+             }
+             
+             try {
+                 App.toast("⚙️ Objekt wird gelöscht...");
+                 await SupabaseDB.locations.delete(id);
+                 App.toast("✅ Objekt erfolgreich gelöscht.");
+                 App.actions.loadLocations();
+             } catch(e) {
+                 console.error(e);
+                 App.toast("❌ Fehler beim Löschen des Objekts.");
+             }
         },
         saveLocation: async () => {
              const input = { customer_number: document.getElementById('loc-customer-num').value.trim(), name: document.getElementById('loc-name').value.trim(), address: document.getElementById('loc-address').value.trim(), floor: document.getElementById('loc-floor').value.trim(), contact_person: document.getElementById('loc-contact').value.trim(), coords_lat: parseFloat(document.getElementById('loc-lat').value) || null, coords_lng: parseFloat(document.getElementById('loc-lng').value) || null };
              if (!input.name || !input.address) return App.toast("⚠️ Daten unvollständig!");
              try { const l = await SupabaseDB.locations.create(input); App.toast("✅ Gespeichert!"); App.actions.loadLocations(); App.actions.previewQR(l.id, l.name, l.address); } catch (err) { App.toast("Fehler"); }
         },
-        previewQR: (id, name, address) => {
-             const r = document.getElementById('qr-result'); r.innerHTML = `<canvas id="qr-preview" class="p-10 bg-white shadow-premium rounded-[48px]"></canvas><button class="mt-8 bg-black text-white px-10 py-5 rounded-full text-[11px] font-black uppercase shadow-xl active:scale-95 transition-all" onclick="window.print()">QR-CODE DRUCKEN</button>`;
-             QRCode.toCanvas(document.getElementById('qr-preview'), `SFM|${id}|${name}`, { width: 400 });
+        previewQR: async (id, name, address) => {
+             const r = document.getElementById('qr-result'); 
+             r.innerHTML = `<canvas id="qr-preview" class="p-6 bg-white shadow-premium rounded-[48px]" style="max-width: 100%; height: auto;"></canvas><button class="mt-8 bg-black text-white px-10 py-5 rounded-full text-[11px] font-black uppercase shadow-xl active:scale-95 transition-all w-full flex items-center justify-center gap-2" onclick="App.actions.printQR('${id}', '${name}', '${address}')"><span>🖨️</span> QR-SCHILD DRUCKEN</button>`;
+             
+             const canvas = document.getElementById('qr-preview');
+             try {
+                 await QRCode.toCanvas(canvas, `SFM|${id}|${name}`, { 
+                     width: 800, 
+                     margin: 4,
+                     errorCorrectionLevel: 'H'
+                 });
+                 
+                 const ctx = canvas.getContext('2d');
+                 const img = new Image();
+                 img.src = '/logo.png';
+                 img.onload = () => {
+                     const logoSize = canvas.width * 0.22;
+                     const x = (canvas.width - logoSize) / 2;
+                     const y = (canvas.height - logoSize) / 2;
+                     ctx.fillStyle = '#ffffff';
+                     ctx.fillRect(x - 16, y - 16, logoSize + 32, logoSize + 32);
+                     
+                     let dW = logoSize; let dH = logoSize;
+                     if (img.width && img.height) {
+                         const ratio = img.width / img.height;
+                         if (ratio > 1) dH = dW / ratio; else dW = dH * ratio;
+                     }
+                     const dx = x + (logoSize - dW)/2;
+                     const dy = y + (logoSize - dH)/2;
+                     ctx.drawImage(img, dx, dy, dW, dH);
+                 };
+             } catch(err) { console.error(err); }
         },
-        openAddEmployee: () => {
-             const m = document.getElementById('modal-container'); m.classList.remove('hidden');
-             m.innerHTML = `<div class="bg-white p-16 rounded-[70px] w-full max-w-sm text-center flex flex-col items-center gap-10 shadow-3xl"><div class="text-7xl shadow-premium p-8 bg-primary/5 rounded-full">👤</div><h2 class="text-3xl font-black italic tracking-tighter text-slate-900 uppercase">Personal Setup</h2><div class="w-full space-y-4"><input id="new-name" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="Echter Name (Vor/Nach)"><input id="new-email" class="w-full p-6 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" placeholder="E-Mail Adresse"></div><div class="flex gap-4 w-full"><button class="flex-1 py-7 bg-slate-100 rounded-[32px] text-slate-300 font-black uppercase text-[10px]" onclick="document.getElementById('modal-container').classList.add('hidden')">Cancel</button><button class="flex-1 py-7 bg-primary text-white rounded-[32px] font-black uppercase text-[10px] shadow-2xl active:scale-95 transition-all" onclick="App.actions.saveEmployee()">ANLEGEN</button></div></div>`;
+
+        printQR: (id, name, address) => {
+             document.getElementById('p-qr-location').textContent = name || "OBJEKT";
+             document.getElementById('p-qr-address').textContent = address || "";
+             
+             const canvas = document.getElementById('qr-preview');
+             const qrImg = document.getElementById('p-qr-image');
+             
+             qrImg.src = canvas.toDataURL('image/png', 1.0);
+             
+             document.body.classList.add('print-mode-qr');
+             document.body.classList.remove('print-mode-report');
+             
+             const executePrint = () => {
+                 window.print();
+                 cleanUpPrint();
+             };
+             
+             const cleanUpPrint = () => {
+                 setTimeout(() => {
+                     document.body.classList.remove('print-mode-qr');
+                 }, 1000);
+             };
+             
+             setTimeout(executePrint, 500);
         },
-        saveEmployee: async () => {
-             try { const n = document.getElementById('new-name').value; const e = document.getElementById('new-email').value; const { user } = await SupabaseDB.auth.signUp(e, 'Sfm12345!', n, 'worker'); await SupabaseDB.profiles.create({ id: user.id, name: n, role: 'worker', email: e }); App.toast("✅ Angelegt!"); document.getElementById('modal-container').classList.add('hidden'); App.views.renderAdminSubView('employees'); } catch(x) { App.toast("Auth Fehler"); }
+        loadEmployees: async () => {
+             const mList = document.getElementById('member-list');
+             try { 
+                 const list = await SupabaseDB.profiles.getAll();
+                 App.state.employeesData = list || [];
+                 mList.innerHTML = list.map(u => `
+                     <tr class="bg-white hover:bg-slate-50 transition-all border-b border-slate-50">
+                         <td class="p-7 text-left align-middle">
+                            <div class="flex items-center gap-4">
+                                <div class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-black">${u.full_name?.[0] || 'M'}</div>
+                                <span class="text-xl font-black italic tracking-tighter text-slate-800 uppercase">${u.full_name}</span>
+                            </div>
+                         </td>
+                         <td class="p-7 text-left align-middle text-slate-400 font-medium">${u.email}</td>
+                         <td class="p-7 text-center align-middle">
+                             <span class="${u.role === 'admin' || u.role === 'chef' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'} px-5 py-2 rounded-full text-[9px] uppercase font-black tracking-widest border border-transparent">
+                                 ${u.role}
+                             </span>
+                         </td>
+                         <td class="p-7 text-right align-middle space-x-2">
+                             <button class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold p-3 rounded-2xl transition-all active:scale-95 shadow-sm text-[10px] uppercase" onclick="App.actions.openEditEmployee('${u.id}')">✏️ Edit</button>
+                             <button class="bg-red-50 hover:bg-red-500 hover:text-white text-red-500 font-bold p-3 rounded-2xl transition-all active:scale-95 shadow-sm text-[10px] uppercase" onclick="App.actions.confirmDeleteEmployee('${u.id}')">🗑️ Löschen</button>
+                         </td>
+                     </tr>
+                 `).join('') || `<tr><td colspan="4" class="p-10 text-slate-300 italic text-center uppercase font-black">Kein Personal vorhanden.</td></tr>`; 
+             } catch(e) { 
+                 mList.innerHTML = `<tr><td colspan="4" class="p-10 text-red-400 italic text-center uppercase font-black">Ladefehler.</td></tr>`; 
+             }
+        },
+
+        openEditEmployee: (userId = null) => {
+             const isEdit = !!userId;
+             const user = isEdit ? App.state.employeesData.find(u => u.id === userId) : null;
+             
+             const m = document.getElementById('modal-container'); 
+             m.classList.remove('hidden');
+             
+             m.innerHTML = `
+                 <div class="bg-white p-12 sm:p-14 rounded-[70px] w-full max-w-md text-center flex flex-col items-center gap-6 shadow-3xl animate-in zoom-in-95 duration-200">
+                     <div class="text-6xl shadow-premium p-6 bg-primary/5 rounded-full mb-1">${isEdit ? '📝' : '👤'}</div>
+                     <h2 class="text-4xl font-black italic tracking-tighter text-slate-900 uppercase">
+                         ${isEdit ? 'Profil Editieren' : 'Neues Profil'}
+                     </h2>
+                     <div class="w-full space-y-4 text-left">
+                         <div>
+                             <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2 italic">Name (Vor-/Nachname)</label>
+                             <input id="emp-name" class="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none shadow-inner" placeholder="Echter Name" value="${user ? user.full_name : ''}">
+                         </div>
+                         <div>
+                             <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2 italic">Account E-Mail</label>
+                             <input id="emp-email" type="email" class="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none shadow-inner" placeholder="name@domain.at" value="${user ? user.email : ''}" ${isEdit ? 'disabled class="opacity-50"' : ''}>
+                         </div>
+                         <div>
+                             <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2 italic">Rolle (Rechte)</label>
+                             <select id="emp-role" class="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none shadow-inner">
+                                 <option value="worker" ${user && (user.role === 'worker' || user.role === 'mitarbeiter') ? 'selected' : ''}>Mitarbeiter (nur Scannen)</option>
+                                 <option value="admin" ${user && user.role === 'admin' ? 'selected' : ''}>Admin (Voller Zugriff)</option>
+                             </select>
+                         </div>
+                         <div>
+                             <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2 italic">${isEdit ? 'Passwort überschreiben' : 'Initiales Passwort'}</label>
+                             <input id="emp-pwd" type="password" class="w-full p-5 bg-slate-50 rounded-2xl font-bold border-none shadow-inner" placeholder="${isEdit ? 'Leer lassen wenn gleich...' : 'Passwort setzen'}">
+                         </div>
+                     </div>
+                     <div class="flex gap-4 w-full mt-2">
+                         <button class="flex-1 py-6 bg-slate-100 rounded-[28px] text-slate-400 font-black uppercase text-[10px] active:scale-95 transition-all" onclick="document.getElementById('modal-container').classList.add('hidden')">ABBRECHEN</button>
+                         <button class="flex-1 py-6 bg-primary text-white rounded-[28px] font-black uppercase text-[10px] shadow-2xl active:scale-95 transition-all" onclick="App.actions.saveEmployee('${userId || ''}')">${isEdit ? 'SPEICHERN' : 'ANLEGEN'}</button>
+                     </div>
+                 </div>
+             `;
+        },
+
+        saveEmployee: async (userId) => {
+             const name = document.getElementById('emp-name').value.trim();
+             const email = document.getElementById('emp-email').value.trim();
+             const role = document.getElementById('emp-role').value;
+             let password = document.getElementById('emp-pwd').value;
+             
+             if (!name || (!userId && !email)) return App.toast("Name & E-Mail benötigt!");
+             
+             try { 
+                 App.toast("⚙️ Bitte warten...");
+                 const mContainer = document.getElementById('modal-container');
+                 
+                 if (userId) { 
+                     const updates = { name: name, role: role };
+                     if (password) updates.password = password; 
+                     await SupabaseDB.profiles.update(userId, updates);
+                     App.toast("✅ Aktualisiert!");
+                 } else { 
+                     if (!password) password = "Sfm12345!"; 
+                     const { user } = await SupabaseDB.auth.signUp(email, password, name, role); 
+                     if(user) {
+                         try {
+                              await SupabaseDB.profiles.create({ id: user.id, name: name, role: role, email: email }); 
+                         } catch (e) {
+                              await SupabaseDB.profiles.update(user.id, { name: name, role: role, email: email });
+                         }
+                     }
+                     App.toast("✅ Account angelegt!"); 
+                 }
+                 
+                 mContainer.classList.add('hidden'); 
+                 App.actions.loadEmployees(); 
+             } catch(x) { 
+                 App.toast("❌ Fehler (Service-Role Key fehlt?)"); 
+             }
+        },
+
+        confirmDeleteEmployee: (userId) => {
+             const user = App.state.employeesData.find(u => u.id === userId);
+             if(!user) return;
+             
+             const m = document.getElementById('modal-container'); 
+             m.classList.remove('hidden');
+             m.innerHTML = `
+                 <div class="bg-white p-14 rounded-[70px] w-full max-w-sm text-center flex flex-col items-center gap-8 shadow-3xl animate-in zoom-in-95 border-2 border-red-500/20">
+                     <div class="text-7xl p-6 bg-red-500/10 rounded-full animate-pulse text-red-500">🗑️</div>
+                     <h2 class="text-3xl font-black italic tracking-tighter text-slate-900 uppercase leading-snug">Personal<br>Löschen?</h2>
+                     <p class="text-slate-500 font-bold text-sm px-4">Möchtest du <span class="text-red-500 italic uppercase">${user.full_name}</span> unwiderruflich löschen? Login unmöglich.</p>
+                     <div class="flex flex-col gap-4 w-full mt-2">
+                         <button class="w-full py-6 bg-red-500 text-white rounded-[28px] font-black uppercase text-[11px] shadow-2xl active:scale-95 transition-all tracking-widest" onclick="App.actions.deleteEmployee('${userId}')">🚨 JA, LÖSCHEN</button>
+                         <button class="w-full py-5 bg-transparent text-slate-400 hover:text-slate-700 font-black uppercase text-[10px] transition-all" onclick="document.getElementById('modal-container').classList.add('hidden')">ABBRECHEN</button>
+                     </div>
+                 </div>
+             `;
+        },
+        
+        deleteEmployee: async (userId) => {
+             document.getElementById('modal-container').classList.add('hidden');
+             App.toast("⚙️ Löschen...");
+             try {
+                 await SupabaseDB.profiles.delete(userId);
+                 App.toast("✅ Mitarbeiter gelöscht!");
+                 App.actions.loadEmployees();
+             } catch(x) {
+                 App.toast("❌ Löschen fehlgeschlagen.");
+             }
         }
     },
 
@@ -468,3 +856,14 @@ const App = {
 };
 
 window.addEventListener('load', App.init); window.App = App;
+
+// PWA Installation
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    App.state.deferredPrompt = e;
+    console.log('PWA Prompt deferred');
+    // Reveal buttons
+    setTimeout(() => {
+        document.querySelectorAll('.install-pwa-btn').forEach(btn => btn.classList.remove('hidden'));
+    }, 1000);
+});
