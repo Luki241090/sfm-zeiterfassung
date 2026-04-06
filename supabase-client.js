@@ -15,13 +15,19 @@ const SupabaseDB = {
             url = import.meta.env.VITE_SUPABASE_URL;
             key = import.meta.env.VITE_SUPABASE_ANON_KEY;
             serviceKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-        } catch(e) {
-            console.warn('[Supabase] import.meta.env nicht verfügbar.');
-        }
+        } catch(e) {}
 
-        if (!url || !key) return false;
+        if (!url || !key) {
+            console.error('[Supabase] CRITICAL: VITE_SUPABASE_URL oder VITE_SUPABASE_ANON_KEY fehlen! Prüfe die Vercel Environment Variables.');
+            return false;
+        }
         
-        _client = createClient(url, key);
+        _client = createClient(url, key, {
+            auth: {
+                persistSession: true,
+                autoRefreshToken: true
+            }
+        });
         
         if (serviceKey) {
             _adminClient = createClient(url, serviceKey, { 
@@ -190,6 +196,7 @@ const SupabaseDB = {
                     worker_id: log.worker_id,
                     location_id: log.location_id,
                     category: log.category,
+                    notes: log.notes || null,
                     start_time: new Date().toISOString()
                 })
                 .select()
@@ -232,22 +239,53 @@ const SupabaseDB = {
         },
 
         async getActiveAll() {
-            const { data, error } = await SupabaseDB._getReadyClient()
-                .from('admin_timesheet') 
-                .select('*')
-                .is('end_time', null)
-                .order('employee_name', { ascending: true });
-            return data || [];
+            try {
+                const { data, error } = await SupabaseDB._getReadyClient()
+                    .from('admin_timesheet')
+                    .select('*')
+                    .is('end_time', null)
+                    .order('start_time', { ascending: false });
+                
+                if (error) throw error;
+                return data || [];
+            } catch(e) {
+                console.error("[Supabase Live] Sync Fehler:", e);
+                return [];
+            }
+        },
+
+        async getLiveMonitoring() {
+            try {
+                const { data, error } = await SupabaseDB._getReadyClient()
+                    .from('live_monitoring')
+                    .select('*');
+                if (error) throw error;
+                return data || [];
+            } catch(e) {
+                console.error("[Supabase Monitoring] Fehler:", e);
+                return [];
+            }
         },
 
         // Haupt-Abfrage fuer Reports
         async getAllForAdmin() {
-            const { data, error } = await SupabaseDB._getReadyClient()
-                .from('admin_timesheet')
-                .select('*')
-                .order('start_time', { ascending: false });
-            if (error) throw error;
-            return data || [];
+            try {
+                // Wir fragen die View DIREKT ab, keine clientseitigen Joins
+                const { data, error } = await SupabaseDB._getReadyClient()
+                    .from('admin_timesheet')
+                    .select('*')
+                    .order('start_time', { ascending: false });
+                
+                if (error) {
+                    console.error("[Supabase Reports] API Fehler:", error.message);
+                    throw error;
+                }
+
+                return data || [];
+            } catch (vErr) {
+                console.error("[Supabase Reports] Kritischer Sync Fehler:", vErr);
+                throw vErr;
+            }
         },
         
         async getAll() {

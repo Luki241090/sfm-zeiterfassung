@@ -19,8 +19,45 @@ const App = {
     },
 
     init: async () => {
+        // Service Worker registration
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').then(() => console.log('SFM ServiceWorker registered')).catch(e => console.error('SW Error', e));
+        }
+
         if (!Config.useMockData && typeof SupabaseDB !== 'undefined') {
-            SupabaseDB.init();
+            const hasInit = SupabaseDB.init();
+            if(!hasInit) {
+                App.renderView('login'); // Safe fallback if no config
+                return;
+            }
+
+            try {
+                const session = await SupabaseDB.auth.getSession();
+                if (session && session.user) {
+                    const p = await SupabaseDB.auth.getProfile(session.user.id);
+                    App.state.currentUser = {
+                        id: session.user.id,
+                        full_name: p?.full_name || p?.name || session.user.email,
+                        role: p?.role || 'worker',
+                        email: session.user.email
+                    };
+                    App.state.currentUser.name = App.state.currentUser.full_name;
+                    App.userRole = App.state.currentUser.role;
+                    sessionStorage.setItem('sfm_user', JSON.stringify(App.state.currentUser));
+                    
+                    await App.actions.loadLocations();
+                    await App.actions.syncActiveSession();
+                    if (App.state.currentUser.role === 'admin' || App.state.currentUser.role === 'chef') {
+                        App.renderView('dashboard'); // ZUERST ZUM DASHBOARD (die 4 Kacheln)
+                    } else {
+                        App.renderView('dashboard');
+                    }
+                    App.actions.checkWorkerWarning();
+                    return;
+                }
+            } catch(e) {
+                console.warn("Auto-login error", e);
+            }
         }
 
         const savedUser = sessionStorage.getItem('sfm_user');
@@ -28,17 +65,16 @@ const App = {
             try {
                 App.state.currentUser = JSON.parse(savedUser);
                 const p = await SupabaseDB.auth.getProfile(App.state.currentUser.id);
-                App.state.currentUser.full_name = p.full_name;
-                App.state.currentUser.role = p.role;
-                App.userRole = p.role;
-                App.state.currentUser.email = p.email || App.state.currentUser.email;
+                App.state.currentUser.full_name = p?.full_name || p?.name || App.state.currentUser.email || App.state.currentUser.full_name;
+                App.state.currentUser.role = p?.role || App.state.currentUser.role;
+                App.userRole = App.state.currentUser.role;
                 sessionStorage.setItem('sfm_user', JSON.stringify(App.state.currentUser));
                 await App.actions.loadLocations();
                 await App.actions.syncActiveSession();
                 if (App.state.currentUser.role === 'admin' || App.state.currentUser.role === 'chef') {
-                    App.renderView('admin');
+                    App.renderView('dashboard'); // ZUERST ZUM DASHBOARD (die 4 Kacheln)
                 } else {
-                    App.renderView('scanner');
+                    App.renderView('dashboard');
                 }
                 App.actions.checkWorkerWarning();
             } catch(e) {
@@ -72,17 +108,21 @@ const App = {
         login: (container) => {
             if (document.getElementById('app')) document.getElementById('app').classList.remove('wider');
             container.innerHTML = `
-                <div class="flex-1 flex items-center justify-center p-8 bg-slate-100 italic">
-                    <div class="w-full max-sm p-12 bg-white rounded-[64px] shadow-premium animate-in zoom-in-95">
-                        <div class="text-center mb-10 italic">
-                             <img src="/logo.png" alt="SFM Logo" class="mx-auto mb-8 grayscale hover:grayscale-0 transition-all opacity-40 h-24 p-2">
-                             <h1 class="text-primary text-6xl font-black italic tracking-tighter mb-2 tracking-[-0.08em] uppercase">Control Cloud</h1>
+                <div class="login-wrapper w-full min-h-[100dvh] flex flex-col items-center justify-center p-4 sm:p-8 bg-slate-100 italic" style="min-height: 100vh;">
+                    <div class="login-card w-full max-w-sm p-10 bg-white rounded-[40px] sm:rounded-[64px] shadow-premium animate-in zoom-in-95 flex flex-col items-center justify-center">
+                        <div class="text-center mb-10 italic w-full">
+                             <img src="/logo.png" alt="SFM Logo" class="mx-auto mb-8 transition-all object-contain max-w-[200px]">
+                             <h1 class="text-primary text-5xl sm:text-6xl font-black italic tracking-tighter mb-2 tracking-[-0.08em] uppercase">Control Cloud</h1>
                              <p class="text-[9px] font-black text-slate-300 uppercase tracking-[0.4em] px-2 italic uppercase">Zeiterfassung Service</p>
                         </div>
-                        <div class="space-y-6">
-                           <input type="email" id="email-input" class="w-full px-7 py-5 bg-slate-50 rounded-[28px] font-bold border-none" placeholder="LOGIN EMAIL">
-                           <input type="password" id="password-input" class="w-full px-7 py-5 bg-slate-50 rounded-[28px] font-bold border-none" placeholder="PASSWORD">
-                           <button class="w-full bg-primary h-16 rounded-[28px] text-white font-black uppercase tracking-widest shadow-2xl transition-all active:scale-95" onclick="App.actions.login()">ANMELDEN</button>
+                        <div class="space-y-6 w-full flex flex-col items-center">
+                           <input type="email" id="email-input" class="w-[90%] sm:w-full px-7 py-5 bg-slate-50 font-bold border-none rounded-[12px]" placeholder="LOGIN EMAIL">
+                           <input type="password" id="password-input" class="w-[90%] sm:w-full px-7 py-5 bg-slate-50 font-bold border-none rounded-[12px]" placeholder="PASSWORD">
+                           <div class="w-[90%] sm:w-full flex items-center justify-center gap-3 mt-2 mb-2">
+                               <input type="checkbox" id="keep-logged-in" checked class="w-5 h-5 accent-primary cursor-pointer rounded">
+                               <label for="keep-logged-in" class="text-[11px] font-black text-slate-500 uppercase tracking-widest cursor-pointer">Angemeldet bleiben</label>
+                           </div>
+                           <button class="w-[90%] sm:w-full bg-primary h-16 rounded-[12px] text-white font-black uppercase tracking-widest shadow-2xl transition-all active:scale-95" onclick="App.actions.login()">ANMELDEN</button>
                         </div>
                     </div>
                 </div>
@@ -95,29 +135,40 @@ const App = {
             if (!user) return App.renderView('login');
 
             container.innerHTML = `
-                <div class="max-w-xl mx-auto p-12 w-full animate-in slide-in-from-bottom-10 h-full flex flex-col justify-center">
-                    <div class="flex justify-between items-end mb-16 px-4">
+                <div class="max-w-xl mx-auto p-6 sm:p-12 w-full animate-in slide-in-from-bottom-10 h-full flex flex-col justify-center min-h-[100dvh]">
+                    <div class="flex justify-between items-center mb-10 px-2 sm:px-4">
                         <div class="italic text-left">
-                            <p class="text-slate-400 font-bold text-[10px] uppercase tracking-[0.4em] mb-1 italic">Personal ID Hub</p>
-                            <h2 class="text-4xl font-black text-slate-900 tracking-tighter italic">${user.full_name || 'Kollege'}</h2>
+                            <p class="text-slate-400 font-bold text-[9px] sm:text-[10px] uppercase tracking-[0.4em] mb-1 italic">Willkommen zurück</p>
+                            <h2 class="text-3xl sm:text-4xl font-black text-slate-900 tracking-tighter italic">Hallo ${user.full_name || user.email}</h2>
                         </div>
-                        <button class="w-16 h-16 bg-white rounded-[32px] flex items-center justify-center text-xl hover:bg-red-50 hover:text-red-500 transition-all font-bold shadow-premium border border-white" onclick="App.actions.logout()">✕</button>
+                        <button class="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full sm:rounded-[32px] flex items-center justify-center text-lg sm:text-xl hover:bg-red-50 hover:text-red-500 transition-all font-bold shadow-premium border border-white" onclick="App.actions.logout()">✕</button>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-8 w-full">
-                        ${App.ui.menuTile('🧹', 'REINIGUNG', 'unterhalt')}
-                        ${App.ui.menuTile('✨', 'SONDER', 'sonder')}
-                        ${App.ui.menuTile('❄️', 'WINTER', 'winter')}
-                        ${App.ui.menuTile('📋', 'KONTROLLE', 'leitung')}
+                    <div class="grid grid-cols-2 gap-4 sm:gap-8 w-full">
+                        ${(user.role === 'admin' || user.role === 'chef') ? `
+                            ${App.ui.adminTile('📍', 'MONITORING', 'monitoring')}
+                            ${App.ui.adminTile('📊', 'AUSWERTUNGEN', 'reports')}
+                            ${App.ui.adminTile('👥', 'PERSONALSTAMM', 'employees')}
+                            ${App.ui.adminTile('🏷️', 'OBJEKT-KATALOG', 'locations')}
+                        ` : `
+                            ${App.ui.menuTile('🧹', 'REINIGUNG', 'unterhalt')}
+                            ${App.ui.menuTile('✨', 'SONDER', 'sonder')}
+                            ${App.ui.menuTile('❄️', 'WINTER', 'winter')}
+                            ${App.ui.menuTile('📋', 'KONTROLLE', 'leitung')}
+                        `}
                     </div>
 
-                    ${(user.role === 'admin' || user.role === 'chef') ? `
-                        <button class="mt-20 w-full py-7 bg-black text-white font-black rounded-[40px] shadow-2xl flex items-center justify-center gap-4 hover:scale-[1.02] transition-all uppercase tracking-[0.3em] text-[10px]" onclick="App.renderView('admin')">
-                            🔒 ADMIN MASTER CONSOLE (SFM)
+                    <div id="pwa-install-container" class="mt-8 flex flex-col gap-4">
+                        <button id="pwa-install-main" class="install-pwa-btn hidden w-full py-6 bg-primary/10 text-primary font-black rounded-[28px] border-2 border-dashed border-primary/20 flex items-center justify-center gap-3 transition-all active:scale-95 text-[11px] tracking-widest uppercase" onclick="App.actions.installPWA()">
+                            📲 APP JETZT INSTALLIEREN
                         </button>
-                    ` : ''}
+                    </div>
                 </div>
             `;
+            // Check if PWA prompt exists
+            if (App.state.deferredPrompt) {
+                document.querySelectorAll('.install-pwa-btn').forEach(btn => btn.classList.remove('hidden'));
+            }
         },
 
         scanner: (container, params = {}) => {
@@ -199,15 +250,17 @@ const App = {
 
         adminMonitoring: async (content) => {
             content.innerHTML = `
-                <div class="max-w-6xl mx-auto space-y-10 animate-in fade-in duration-500 italic">
-                    <div class="px-4 italic">
-                        <h2 class="text-6xl font-black tracking-tighter text-slate-900 mb-2 italic italic">Monitoring</h2>
-                        <p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest underline decoration-primary/20 italic tracking-[0.3em]">LIVE-ÜBERSICHT WIEN HUB</p>
-                    </div>
-                    <div id="monitoring-map" class="h-[600px] w-full bg-white rounded-[80px] shadow-premium border-[15px] border-white z-0 overflow-hidden relative"></div>
-                    <div class="bg-white rounded-[70px] shadow-premium p-12 border border-white">
-                        <h3 class="p-6 text-[10px] font-black text-slate-200 uppercase tracking-[0.4em] italic mb-6">Mitarbeiter im Einsatz</h3>
-                        <div id="active-workers-list" class="space-y-6"></div>
+                <div class="max-w-6xl mx-auto animate-in fade-in duration-500 italic monitoring-container">
+                    <div class="monitoring-desktop-grid">
+                        <div class="px-4 italic monitoring-header mb-8">
+                            <h2 class="text-6xl font-black tracking-tighter text-slate-900 mb-2 italic italic">Monitoring</h2>
+                            <p class="text-slate-400 font-bold uppercase text-[10px] tracking-widest underline decoration-primary/20 italic tracking-[0.3em]">LIVE-ÜBERSICHT WIEN HUB</p>
+                        </div>
+                        <div id="monitoring-map" class="h-[600px] w-full bg-white rounded-[80px] shadow-premium border-[15px] border-white z-0 overflow-hidden relative"></div>
+                        <div class="bg-white rounded-[70px] shadow-premium p-12 border border-white active-workers-scroll flex-1">
+                            <h3 class="p-6 text-[10px] font-black text-slate-200 uppercase tracking-[0.4em] italic mb-6">Mitarbeiter im Einsatz</h3>
+                            <div id="active-workers-list" class="space-y-6"></div>
+                        </div>
                     </div>
                 </div>
             `;
@@ -247,9 +300,26 @@ const App = {
                 </div>
             `;
             try {
+                // Ensure profile is loaded (redundant safety check)
+                if (!App.state.currentUser || !App.state.currentUser.role) {
+                    const session = await SupabaseDB.auth.getSession();
+                    if (session?.user) {
+                        const p = await SupabaseDB.auth.getProfile(session.user.id);
+                        App.state.currentUser = { 
+                            id: session.user.id, 
+                            role: p?.role || 'worker',
+                            full_name: p?.full_name || p?.name || session.user.email
+                        };
+                    }
+                }
+                
+                App.toast("🔄 Synchronisiere...");
                 App.state.reportsData = await SupabaseDB.time_logs.getAllForAdmin() || [];
                 App.actions.filterReports();
-            } catch (err) { App.toast("Sync Fehler"); }
+            } catch (err) { 
+                console.error("Sync error:", err);
+                App.toast("Sync Fehler: Datenbank nicht erreichbar"); 
+            }
         },
 
         adminLocations: async (content) => {
@@ -283,6 +353,7 @@ const App = {
     // --- UI ELEMENTS ---
     ui: {
         menuTile: (emoji, label, cat) => `<div class="aspect-square bg-white border border-slate-100 rounded-[80px] p-10 flex flex-col justify-center items-center gap-6 shadow-premium hover:shadow-2xl hover:scale-[1.05] transition-all cursor-pointer group" onclick="App.renderView('scanner', {category: '${cat}', isCheckout: false})"><div class="text-8xl group-hover:scale-110 transition-transform duration-700 select-none">${emoji}</div><h3 class="font-black text-[12px] uppercase tracking-[0.4em] text-slate-200 group-hover:text-primary transition-colors italic">${label}</h3></div>`,
+        adminTile: (emoji, label, view) => `<div class="aspect-square bg-white border border-slate-100 rounded-[80px] p-10 flex flex-col justify-center items-center gap-6 shadow-premium hover:shadow-2xl hover:scale-[1.05] transition-all cursor-pointer group" onclick="App.state.adminSubView = '${view}'; App.renderView('admin')"><div class="text-8xl group-hover:scale-110 transition-transform duration-700 select-none">${emoji}</div><h3 class="font-black text-[12px] uppercase tracking-[0.4em] text-slate-200 group-hover:text-primary transition-colors italic">${label}</h3></div>`,
         sidebarItem: (icon, label, view) => `<div data-view="${view}" class="sidebar-item p-6 rounded-[38px] flex items-center gap-7 cursor-pointer hover:bg-white/5 transition-all group lg:mx-2" onclick="App.views.renderAdminSubView('${view}')"><span class="text-4xl group-hover:scale-110 transition-all duration-500">${icon}</span><span class="font-bold text-[13px] tracking-tight opacity-40 group-hover:opacity-100 italic uppercase">${label}</span></div>`,
         updateStatusBar: () => {
              const bar = document.getElementById('persistent-status'); const app = document.getElementById('app'); const session = App.state.activeSession;
@@ -347,14 +418,14 @@ const App = {
                 await App.actions.syncActiveSession();
                 
                 if (App.userRole === 'admin' || App.userRole === 'chef') {
-                    App.renderView('admin');
+                    App.renderView('dashboard'); // ZUERST ZUM DASHBOARD (die 4 Kacheln)
                 } else {
-                    App.renderView('scanner');
+                    App.renderView('dashboard');
                 }
                 App.actions.checkWorkerWarning();
              } catch(e) { 
                  console.error("LOGIN FEHLER:", e);
-                 App.toast("Zugriff verweigert: " + (e.message || "Unbekannter Fehler")); 
+                 App.toast("Zugangsdaten nicht korrekt."); 
              }
         },
         
@@ -396,10 +467,16 @@ const App = {
         confirmCheckIn: async () => {
              try {
                 const u = App.state.currentUser; const s = App.state.activeScan;
-                const log = await SupabaseDB.time_logs.checkIn({ worker_id: u.id, location_id: s.locId, category: s.category });
+                let userNotes = null;
+                if (s.category === 'sonder') {
+                    userNotes = window.prompt('Bitte Objektnamen/Notiz eingeben');
+                } else if (s.category === 'unterhalt') {
+                    userNotes = 'Unterhaltsreinigung';
+                }
+                const log = await SupabaseDB.time_logs.checkIn({ worker_id: u.id, location_id: s.locId, category: s.category, notes: userNotes });
                 App.state.activeSession = { id: log.id, name: s.locName, locationId: s.locId, startTime: log.start_time, hours: 0 };
                 App.toast(`✅ EINGELOGGT: ${s.locName}`); if (App.state.currentUser.role === 'admin' || App.state.currentUser.role === 'chef') {
-                    App.renderView('admin');
+                    App.renderView('dashboard');
                 } else {
                     App.renderView('scanner');
                 }
@@ -418,46 +495,59 @@ const App = {
         loadMonitoringData: async () => {
              try {
                 const locations = await SupabaseDB.locations.getAll();
-                const active = await SupabaseDB.time_logs.getActiveAll();
+                const liveData = await SupabaseDB.time_logs.getLiveMonitoring();
                 const container = document.getElementById('monitoring-map'); if (!container) return; container.innerHTML = "";
                 const map = L.map('monitoring-map', { zoomControl: false }).setView([48.2082, 16.3738], 12);
                 L.tileLayer('https://{s}.tile.osm.org/{z}/{x}/{y}.png').addTo(map);
 
                 locations.forEach(loc => {
                     if (loc.coords_lat && loc.coords_lng) {
-                        const logsAtLoc = active.filter(l => l.location_id === loc.id);
-                        const isActive = logsAtLoc.length > 0;
-                        const isWarning = logsAtLoc.some(l => {
-                            const hrs = (new Date() - new Date(l.start_time)) / 3600000;
-                            return hrs > 10;
-                        });
-                        const iconClass = isWarning ? "pin-red-blink" : (isActive ? "pin-green" : "pin-idle");
-                        const iconHtml = `<div class="w-10 h-10 rounded-full border-4 border-white shadow-xl ${isWarning ? 'bg-alert' : (isActive ? 'bg-success' : 'bg-slate-300')} ${iconClass}"></div>`;
+                        const activeEntry = liveData.find(l => l.location_id === loc.id);
+                        const isActive = !!activeEntry;
+                        
+                        // Marker Styling
+                        const iconClass = isActive ? "marker-active animate-pulse" : "marker-idle";
+                        const iconColor = isActive ? "bg-success" : "bg-slate-300";
+                        const iconHtml = `<div class="w-10 h-10 rounded-full border-4 border-white shadow-xl ${iconColor} ${iconClass}"></div>`;
                         const pin = L.divIcon({ className: '', html: iconHtml, iconSize: [40, 40] });
-                        const popup = `<div class="p-5 text-left italic"><h4 class="font-black italic text-xl tracking-tighter uppercase text-primary">${loc.name}</h4><p class="text-[9px] text-slate-300 font-bold uppercase tracking-widest mb-4 italic">${loc.address}</p>${isActive ? `<div class="bg-primary p-4 rounded-3xl text-white text-xs font-black uppercase italic shadow-lg">👥 AKTIV: ${logsAtLoc.map(l => l.employee_name || 'Kollege').join(', ')}</div>` : `<span class="italic text-slate-200 text-[10px] uppercase font-black">UNBESETZT</span>`}</div>`;
-                        L.marker([loc.coords_lat, loc.coords_lng], { icon: pin }).addTo(map).bindPopup(popup);
+                        
+                        // Popup Inhalt
+                        const statusTag = isActive 
+                            ? `<div class="bg-success/10 text-success p-4 rounded-3xl text-sm font-black uppercase italic shadow-sm border border-success/20">🟢 BESETZT: ${activeEntry.worker_name || activeEntry.full_name || 'Mitarbeiter'}</div>` 
+                            : `<span class="italic text-slate-300 text-[10px] uppercase font-black opacity-50">⚪ UNBESETZT</span>`;
+
+                        const popupHtml = `
+                            <div class="p-5 text-left italic min-w-[200px]">
+                                <h4 class="font-black italic text-xl tracking-tighter uppercase text-primary mb-1">${loc.name}</h4>
+                                <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-6 italic">${loc.address}</p>
+                                ${statusTag}
+                            </div>
+                        `;
+
+                        L.marker([loc.coords_lat, loc.coords_lng], { icon: pin }).addTo(map).bindPopup(popupHtml);
                     }
                 });
 
-                document.getElementById('active-workers-list').innerHTML = active.map(log => `
-                     <div class="bg-slate-50 p-10 rounded-[48px] border border-transparent flex items-center justify-between group shadow-sm transition-all hover:border-primary/20">
+                // Liste rechts befüllen
+                document.getElementById('active-workers-list').innerHTML = liveData.map(log => `
+                     <div class="bg-white p-10 rounded-[48px] border border-slate-50 flex items-center justify-between group shadow-premium transition-all hover:border-primary/20">
                         <div class="flex items-center gap-7">
-                            <div class="w-16 h-16 bg-primary/10 text-primary rounded-[32px] flex items-center justify-center text-3xl font-black italic shadow-inner">${(log.employee_name || 'P')[0]}</div>
+                            <div class="w-16 h-16 bg-primary/10 text-primary rounded-[32px] flex items-center justify-center text-3xl font-black italic shadow-inner">${(log.worker_name || log.full_name || 'P')[0]}</div>
                             <div class="text-left">
-                                <h4 class="text-2xl font-black italic tracking-tighter text-slate-900 uppercase italic opacity-80">${log.employee_name || 'Mitarbeiter'}</h4>
+                                <h4 class="text-2xl font-black italic tracking-tighter text-slate-900 uppercase italic opacity-80">${log.worker_name || log.full_name || 'Mitarbeiter'}</h4>
                                 <p class="text-[10px] font-black text-slate-300 uppercase tracking-[0.4em] italic">${log.location_name || 'Objekt'}</p>
                             </div>
                         </div>
                         <div class="text-right">
                              <div class="flex flex-col items-end gap-1">
-                                <span class="bg-success px-5 py-1.5 rounded-full text-[8px] font-black text-white uppercase tracking-widest animate-pulse">Live</span>
-                                <p class="text-[11px] font-bold text-slate-400 mt-2 italic">Dienstbeginn: ${new Date(log.start_time).toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'})}</p>
-                                <button class="mt-2 text-[10px] bg-red-100 text-red-600 px-4 py-2 rounded-xl font-bold uppercase active:scale-95 transition-all w-full text-center hover:bg-red-200 shadow-sm" onclick="App.actions.remoteCheckOut('${log.id}')">🛑 BEENDEN</button>
+                                <span class="bg-success px-5 py-1.5 rounded-full text-[8px] font-black text-white uppercase tracking-widest animate-pulse shadow-success/40 shadow-lg">Live</span>
+                                <p class="text-[11px] font-bold text-slate-400 mt-2 italic">Seit: ${new Date(log.start_time).toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'})}</p>
+                                <button class="mt-4 text-[9px] bg-red-50 text-red-500 px-6 py-2.5 rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all w-full text-center hover:bg-red-500 hover:text-white shadow-sm" onclick="App.actions.remoteCheckOut('${log.id}')">STOPP</button>
                              </div>
                         </div>
                      </div>
-                `).join('') || `<div class="p-16 text-center italic text-slate-200 uppercase tracking-widest font-black opacity-20 italic">Derzeit keine aktiven Einsatze</div>`;
-             } catch(e) { console.error(e); }
+                `).join('') || `<div class="p-16 text-center italic text-slate-200 uppercase tracking-widest font-black opacity-20 italic">Derzeit keine aktiven Einsätze</div>`;
+             } catch(e) { console.error("Monitoring Error:", e); }
         },
 
         remoteCheckOut: async (logId) => {
@@ -478,24 +568,55 @@ const App = {
         renderReportsTable: (data) => {
             const container = document.getElementById('reports-table-container');
             if (data.length === 0) { container.innerHTML = `<div class="p-20 text-center italic text-slate-200 uppercase tracking-widest font-black opacity-20">Keine Datensatze gefunden</div>`; return; }
+            
+            const formatDate = (dateStr) => {
+                if (!dateStr) return '-';
+                const d = new Date(dateStr);
+                return d.toLocaleString('de-AT', { 
+                    day: '2-digit', 
+                    month: '2-digit', 
+                    year: 'numeric', 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+            };
+
             let totalHours = 0;
             const rows = data.map(log => {
-                const start = new Date(log.start_time); const end = log.end_time ? new Date(log.end_time) : null;
-                let hrs = log.duration_hours || (end ? (end-start)/3600000 : (new Date()-start)/3600000);
-                totalHours += hrs; const h = Math.floor(hrs); const m = Math.round((hrs-h)*60);
+                const start = new Date(log.start_time); 
+                const end = log.end_time ? new Date(log.end_time) : null;
+                
+                // Nutze duration_hours aus der View, falls vorhanden, sonst berechne live
+                let hrs = log.duration_hours;
+                if (hrs === undefined || hrs === null || (hrs === 0 && !log.end_time)) {
+                    let diffMs = (end ? end.getTime() : Date.now()) - start.getTime();
+                    hrs = Math.max(0, diffMs / 3600000);
+                }
+                
+                totalHours += hrs; 
+                const h = Math.floor(hrs); 
+                const m = Math.round((hrs - h) * 60);
+
+                // EXAKTE LOGIK WIE VOM USER GEWÜNSCHT
+                const displayName = log.full_name || log.employee_name || log.email || 'Kein Name';
                 return `
-                <tr class="bg-white hover:bg-slate-50 transition-all border-b border-slate-50">
-                    <td class="p-7 text-left"><span class="text-2xl font-black italic tracking-tighter text-slate-800 italic uppercase">${log.employee_name || 'Personal'}</span></td>
+                <tr class="bg-white hover:bg-slate-50 transition-all border-b border-white-50">
+                    <td class="p-7 text-left"><span class="text-2xl font-black italic tracking-tighter text-slate-800 italic uppercase">${displayName}</span></td>
                     <td class="p-7 text-left text-slate-300 font-black italic tracking-tight uppercase">${log.location_name || '-'}</td>
-                    <td class="p-7 text-slate-400 font-medium">${start.toLocaleDateString('de-AT')}</td>
-                    <td class="p-7 text-slate-800 font-black italic text-sm text-left italic">${start.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'})} - ${end ? end.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'}) : '<span class="text-primary animate-pulse">AKTIV</span>'}</td>
+                    <td class="p-7 text-left text-slate-500 font-medium italic text-xs">${log.notes || '-'}</td>
+                    <td class="p-7 text-slate-600 font-bold text-xs">
+                        <div class="flex flex-col gap-1">
+                            <span>${formatDate(log.start_time)}</span>
+                            <span class="${!log.end_time ? 'text-primary animate-pulse' : 'text-slate-400'}">${log.end_time ? formatDate(log.end_time) : 'AKTIV...'}</span>
+                        </div>
+                    </td>
                     <td class="p-7 text-center font-black italic text-slate-800 text-3xl italic">${h}h ${m}m</td>
                     <td class="p-7 text-right">
                         <button class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold p-3 rounded-2xl transition-all active:scale-95 shadow-sm text-[10px] uppercase" onclick="App.actions.editTimeLog('${log.id}')">✏️ Edit</button>
                     </td>
                 </tr>`;
             }).join('');
-            container.innerHTML = `<table class="w-full text-left font-bold border-separate border-spacing-y-4"><thead class="text-slate-200 uppercase text-[10px] tracking-[0.4em] italic text-left"><tr><th class="p-7">Mitarbeiter</th><th class="p-7">Objekt</th><th class="p-7">Datum</th><th class="p-7">Zeitfenster</th><th class="p-7 text-center">Netto</th><th class="p-7 text-right">Aktion</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="bg-primary/5 rounded-[48px]"><td colspan="5" class="p-10 text-right text-slate-300 font-black uppercase tracking-[0.3em] italic">Gefilterte Gesamtstunden:</td><td class="p-10 text-center text-5xl font-black text-primary italic tracking-tighter">${totalHours.toFixed(2)} h</td></tr></tfoot></table>`;
+            container.innerHTML = `<table class="w-full text-left font-bold border-separate border-spacing-y-4"><thead class="text-slate-200 uppercase text-[10px] tracking-[0.4em] italic text-left"><tr><th class="p-7">Mitarbeiter</th><th class="p-7">Objekt</th><th class="p-7">Notiz/Typ</th><th class="p-7">Zeitraum (Von/Bis)</th><th class="p-7 text-center">Netto</th><th class="p-7 text-right">Aktion</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="bg-primary/5 rounded-[48px]"><td colspan="5" class="p-10 text-right text-slate-300 font-black uppercase tracking-[0.3em] italic">Gesamtstunden:</td><td class="p-10 text-center text-5xl font-black text-primary italic tracking-tighter">${totalHours.toFixed(2)} h</td></tr></tfoot></table>`;
         },
 
         editTimeLog: async (logId) => {
@@ -585,14 +706,22 @@ const App = {
              let total = 0;
              const rows = data.map(l => {
                  const s = new Date(l.start_time); const e = l.end_time ? new Date(l.end_time) : null;
-                 const h = l.duration_hours || (e ? (e-s)/3600000 : 0); total += h;
-                 return `<tr><td>${l.employee_name}</td><td>${l.location_name}</td><td>${s.toLocaleDateString('de-AT')}</td><td>${s.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'})} - ${e ? e.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'}) : 'AKTIV'}</td><td class="font-bold">${h.toFixed(2)} h</td></tr>`;
+                 // EXAKTE LOGIK WIE VOM USER GEWÜNSCHT
+                 const displayName = l.full_name || l.employee_name || l.email || 'Kein Name';
+                 const h = l.duration_hours || (e ? (e.getTime()-s.getTime())/3600000 : (Date.now()-s.getTime())/3600000); 
+                 total += h;
+                 return `<tr><td>${displayName}</td><td>${l.location_name || '-'}</td><td>${l.notes || '-'}</td><td>${s.toLocaleDateString('de-AT')}</td><td>${s.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'})} - ${e ? e.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'}) : 'AKTIV'}</td><td class="font-bold">${h.toFixed(2)} h</td></tr>`;
              });
 
-             document.getElementById('p-report-table-container').innerHTML = `<table><thead><tr><th width="25%">Mitarbeiter</th><th width="25%">Objekt</th><th width="15%">Datum</th><th width="20%">Zeitraum</th><th width="15%">Stunden</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+             document.getElementById('p-report-table-container').innerHTML = `<table><thead><tr><th width="20%">Mitarbeiter</th><th width="20%">Objekt</th><th width="15%">Notiz/Typ</th><th width="15%">Datum</th><th width="20%">Zeitraum</th><th width="10%">Stunden</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
              document.getElementById('p-report-total-box').textContent = `GESAMT STUNDEN: ${total.toFixed(2)} h`;
              
+             document.body.classList.add('print-mode-report');
              window.print();
+             setTimeout(() => {
+                 document.body.classList.remove('print-mode-report');
+             }, 1000);
+
              App.toast("✅ EXPORT GESTARTET");
         },
 
@@ -843,6 +972,16 @@ const App = {
              } catch(x) {
                  App.toast("❌ Löschen fehlgeschlagen.");
              }
+        },
+
+        installPWA: async () => {
+            const prompt = App.state.deferredPrompt;
+            if (!prompt) return;
+            prompt.prompt();
+            const { outcome } = await prompt.userChoice;
+            console.log(`User response to install prompt: ${outcome}`);
+            App.state.deferredPrompt = null;
+            document.querySelectorAll('.install-pwa-btn').forEach(btn => btn.classList.add('hidden'));
         }
     },
 
