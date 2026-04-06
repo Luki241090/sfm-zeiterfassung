@@ -1,62 +1,88 @@
 <!DOCTYPE html>
 <html lang="de">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SFM Zeiterfassung | Wien</title>
+    <title>SFM Wien | Facility Control Hub</title>
+    <link rel="icon" type="image/png" href="/assets/logo-4eT6gmcl.png">
+    <link rel="manifest" href="/manifest.json">
 
-    <!-- PWA Meta Tags -->
-    <link rel="manifest" href="/assets/manifest-CjIDEmCT.json">
-    <meta name="theme-color" content="#007aff">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/1048/1048953.png">
-
-    <!-- Google Fonts: Inter & Outfit -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@300;600;700&display=swap"
-        rel="stylesheet">
-    <!-- Library for QR Scanning -->
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-    <!-- Library for Maps (Leaflet) -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Library for 2FA (TOTP) -->
-    <script src="https://unpkg.com/@otplib/preset-browser@12.0.1/buffer.js"></script>
-    <script src="https://unpkg.com/@otplib/preset-browser@12.0.1/index.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <!-- Library for PDF Generation -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
-  <script type="module" crossorigin src="/assets/index-B2h9WtWm.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-DxlXYscI.css">
-</head>
-
-<body>
-    <div id="app">
-        <!-- Views will be injected here -->
-        <main id="view-container"></main>
-    </div>
-
-    <!-- Modals / Overlays -->
-    <div id="modal-container" class="hidden"></div>
-    <div id="toast-container"></div>
-
-    <!-- Core Scripts -->
-
-    <!-- Service Worker Registration -->
+    <!-- Essential Libraries -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('SW registered', reg))
-                    .catch(err => console.error('SW failed', err));
-            });
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { primary: '#0056b3', info: '#f8fafc', alert: '#ef4444', success: '#22c55e' },
+                    boxShadow: { 'premium': '0 25px 50px -12px rgba(0, 0, 0, 0.1)', 'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.05)' }
+                }
+            }
         }
     </script>
-</body>
+    
+    <!-- QR & Scanner -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
 
+    <!-- Maps (Leaflet) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script type="module" crossorigin src="/assets/index-D9vlNMZF.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DjOSgt9d.css">
+</head>
+<body class="min-h-screen antialiased select-none overflow-x-hidden safe-area-inset">
+
+    <div id="persistent-status" class="fixed top-0 left-0 right-0 z-[1000] hidden animate-in slide-in-from-top duration-700 backdrop-blur-3xl border-b border-primary/10 no-print"></div>
+
+    <div id="app" class="flex min-h-screen pt-0 transition-all duration-500">
+        <main id="view-container" class="flex-1 flex flex-col"></main>
+    </div>
+
+    <div id="modal-container" class="hidden fixed inset-0 z-[1500] bg-black/60 backdrop-blur-lg flex items-center justify-center p-6 animate-in fade-in duration-300 no-print"></div>
+    <div id="toast-container" class="fixed bottom-10 right-10 z-[2000] flex flex-col gap-4 pointer-events-none no-print"></div>
+
+    <!-- Hidden Print Container: QR Schild -->
+    <div id="print-qr-schild" class="hidden bg-white text-black min-h-screen p-10 flex flex-col items-center justify-center text-center">
+        <img src="/assets/logo-4eT6gmcl.png" alt="SFM Logo" style="max-width: 250px; margin-bottom: 30px;">
+        <h1 id="p-qr-location" style="font-size: 42px; font-weight: 900; font-family: 'Outfit', sans-serif; text-transform: uppercase; margin-bottom: 5px;">OBJEKTNAME</h1>
+        <p id="p-qr-address" style="font-size: 20px; color: #64748b; font-weight: 600; margin-bottom: 40px; text-transform: uppercase; letter-spacing: 0.1em;">Adresse</p>
+        <img id="p-qr-image" src="" alt="QR Code" style="width: 450px; height: 450px; border: 3px solid #f1f5f9; padding: 25px; border-radius: 48px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);">
+        <div style="margin-top: 50px; padding: 20px 40px; background: #0056b3; border-radius: 100px; color: white;">
+            <p style="font-size: 16px; font-weight: 900; letter-spacing: 0.3em; text-transform: uppercase; margin: 0;">BITTE FÜR ZEITERFASSUNG SCANNEN</p>
+        </div>
+        <div style="margin-top: 50px; font-size: 12px; color: #94a3b8; font-weight: 600; font-style: italic;">
+            Schäffer Facility Management GmbH | www.s-fm.at
+        </div>
+    </div>
+
+    <!-- Hidden Print Container: Branded LEISTUNGSNACHWEIS -->
+    <div id="print-report" class="hidden bg-white text-black min-h-screen p-10 flex flex-col">
+        <div class="print-header">
+            <div class="print-logo-box">
+                <img id="logo-print" src="/assets/logo-4eT6gmcl.png" alt="SFM Logo" width="150" style="width: 150px; min-width: 150px; max-width: 150px;">
+            </div>
+            <div class="print-brand">Schäffer Facility Management GmbH</div>
+            <div class="print-report-type uppercase">Leistungsnachweis</div>
+            
+            <table class="print-meta-table">
+                <tr><td width="15%"><strong>OBJEKT:</strong></td><td id="p-report-location">-</td></tr>
+                <tr><td><strong>KUNDE:</strong></td><td id="p-report-contact">-</td></tr>
+                <tr><td><strong>ZEITRAUM:</strong></td><td id="p-report-period">-</td></tr>
+            </table>
+        </div>
+        
+        <div id="p-report-table-container"></div>
+        
+        <div id="p-report-total-box" class="print-total-bar italic uppercase">Gesamtstunden: 0.00 h</div>
+        
+        <div class="print-footer">
+             <div>Schäffer Facility Management GmbH | Geiselbergstraße 48/2/1, 1110 Wien</div>
+             <div>www.s-fm.at | office@s-fm.at</div>
+        </div>
+    </div>
+
+    <!-- Scripts Module -->
+
+</body>
 </html>
