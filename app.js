@@ -47,8 +47,9 @@ const App = {
                     
                     await App.actions.loadLocations();
                     await App.actions.syncActiveSession();
-                    if (App.state.currentUser.role === 'admin' || App.state.currentUser.role === 'chef') {
-                        App.renderView('dashboard'); // ZUERST ZUM DASHBOARD (die 4 Kacheln)
+                    const isDesktop = window.innerWidth >= 1024;
+                    if ((App.state.currentUser.role === 'admin' || App.state.currentUser.role === 'chef') && isDesktop) {
+                        App.renderView('admin');
                     } else {
                         App.renderView('dashboard');
                     }
@@ -71,8 +72,9 @@ const App = {
                 sessionStorage.setItem('sfm_user', JSON.stringify(App.state.currentUser));
                 await App.actions.loadLocations();
                 await App.actions.syncActiveSession();
-                if (App.state.currentUser.role === 'admin' || App.state.currentUser.role === 'chef') {
-                    App.renderView('dashboard'); // ZUERST ZUM DASHBOARD (die 4 Kacheln)
+                const isDesktop = window.innerWidth >= 1024;
+                if ((App.state.currentUser.role === 'admin' || App.state.currentUser.role === 'chef') && isDesktop) {
+                    App.renderView('admin');
                 } else {
                     App.renderView('dashboard');
                 }
@@ -145,25 +147,28 @@ const App = {
                     </div>
 
                     <div class="grid grid-cols-2 gap-4 sm:gap-8 w-full">
-                        ${(user.role === 'admin' || user.role === 'chef') ? `
-                            ${App.ui.adminTile('📍', 'MONITORING', 'monitoring')}
-                            ${App.ui.adminTile('📊', 'AUSWERTUNGEN', 'reports')}
-                            ${App.ui.adminTile('👥', 'PERSONALSTAMM', 'employees')}
-                            ${App.ui.adminTile('🏷️', 'OBJEKT-KATALOG', 'locations')}
-                        ` : `
-                            ${App.ui.menuTile('🧹', 'REINIGUNG', 'unterhalt')}
-                            ${App.ui.menuTile('✨', 'SONDER', 'sonder')}
-                            ${App.ui.menuTile('❄️', 'WINTER', 'winter')}
-                            ${App.ui.menuTile('📋', 'KONTROLLE', 'leitung')}
-                        `}
+                        ${App.ui.menuTile('🧹', 'REINIGUNG', 'unterhalt')}
+                        ${App.ui.menuTile('✨', 'SONDER', 'sonder')}
+                        ${App.ui.menuTile('❄️', 'WINTER', 'winter')}
+                        ${App.ui.menuTile('📋', 'KONTROLLE', 'leitung')}
                     </div>
 
-                    <div id="pwa-install-container" class="mt-8 flex flex-col gap-4">
+                    <div id="pwa-install-container" class="mt-8 flex flex-col gap-4 mb-[100px]">
                         <button id="pwa-install-main" class="install-pwa-btn hidden w-full py-6 bg-primary/10 text-primary font-black rounded-[28px] border-2 border-dashed border-primary/20 flex items-center justify-center gap-3 transition-all active:scale-95 text-[11px] tracking-widest uppercase" onclick="App.actions.installPWA()">
                             📲 APP JETZT INSTALLIEREN
                         </button>
                     </div>
                 </div>
+                
+                ${(user.role === 'admin' || user.role === 'chef') ? `
+                    <div class="fixed bottom-0 left-0 right-0 p-4 sm:p-8 bg-gradient-to-t from-slate-100 via-slate-100/90 to-transparent pb-6 sm:pb-10 z-50 pointer-events-none">
+                        <div class="max-w-xl mx-auto">
+                            <button class="w-full py-6 bg-black text-white font-black rounded-[30px] shadow-2xl flex items-center justify-center gap-4 hover:scale-[1.02] transition-all uppercase tracking-[0.3em] text-[10px] pointer-events-auto" onclick="App.renderView('admin')">
+                                🔒 ZUM ADMIN DASHBOARD
+                            </button>
+                        </div>
+                    </div>
+                ` : ''}
             `;
             // Check if PWA prompt exists
             if (App.state.deferredPrompt) {
@@ -227,7 +232,7 @@ const App = {
                         </nav>
                         
                         <button id="pwa-install-side" class="install-pwa-btn hidden mb-4 py-4 bg-white/10 rounded-[28px] font-black text-[10px] uppercase font-sans tracking-widest transition-all hover:bg-white/20 flex items-center justify-center gap-2" onclick="App.actions.installPWA()">📲 INSTALLIEREN</button>
-                        <button class="mt-2 py-5 bg-white/10 rounded-[28px] font-black text-[10px] uppercase font-sans tracking-widest transition-all hover:bg-white/20" onclick="App.renderView('dashboard')">ZURÜCK DAHSBOARD</button>
+                        <button class="mt-2 py-5 bg-white/10 rounded-[28px] font-black text-[10px] uppercase font-sans tracking-widest transition-all hover:bg-white/20" onclick="App.renderView('dashboard')">ZURÜCK ZUR ZEITERFASSUNG</button>
                     </aside>
                     <section id="admin-content" class="flex-1 overflow-y-auto p-16 bg-white/50 backdrop-blur-xl"></section>
                 </div>
@@ -353,7 +358,6 @@ const App = {
     // --- UI ELEMENTS ---
     ui: {
         menuTile: (emoji, label, cat) => `<div class="aspect-square bg-white border border-slate-100 rounded-[80px] p-10 flex flex-col justify-center items-center gap-6 shadow-premium hover:shadow-2xl hover:scale-[1.05] transition-all cursor-pointer group" onclick="App.renderView('scanner', {category: '${cat}', isCheckout: false})"><div class="text-8xl group-hover:scale-110 transition-transform duration-700 select-none">${emoji}</div><h3 class="font-black text-[12px] uppercase tracking-[0.4em] text-slate-200 group-hover:text-primary transition-colors italic">${label}</h3></div>`,
-        adminTile: (emoji, label, view) => `<div class="aspect-square bg-white border border-slate-100 rounded-[80px] p-10 flex flex-col justify-center items-center gap-6 shadow-premium hover:shadow-2xl hover:scale-[1.05] transition-all cursor-pointer group" onclick="App.state.adminSubView = '${view}'; App.renderView('admin')"><div class="text-8xl group-hover:scale-110 transition-transform duration-700 select-none">${emoji}</div><h3 class="font-black text-[12px] uppercase tracking-[0.4em] text-slate-200 group-hover:text-primary transition-colors italic">${label}</h3></div>`,
         sidebarItem: (icon, label, view) => `<div data-view="${view}" class="sidebar-item p-6 rounded-[38px] flex items-center gap-7 cursor-pointer hover:bg-white/5 transition-all group lg:mx-2" onclick="App.views.renderAdminSubView('${view}')"><span class="text-4xl group-hover:scale-110 transition-all duration-500">${icon}</span><span class="font-bold text-[13px] tracking-tight opacity-40 group-hover:opacity-100 italic uppercase">${label}</span></div>`,
         updateStatusBar: () => {
              const bar = document.getElementById('persistent-status'); const app = document.getElementById('app'); const session = App.state.activeSession;
@@ -416,9 +420,9 @@ const App = {
                 sessionStorage.setItem('sfm_user', JSON.stringify(App.state.currentUser));
                 
                 await App.actions.syncActiveSession();
-                
-                if (App.userRole === 'admin' || App.userRole === 'chef') {
-                    App.renderView('dashboard'); // ZUERST ZUM DASHBOARD (die 4 Kacheln)
+                const isDesktop = window.innerWidth >= 1024;
+                if ((App.userRole === 'admin' || App.userRole === 'chef') && isDesktop) {
+                    App.renderView('admin');
                 } else {
                     App.renderView('dashboard');
                 }
@@ -469,17 +473,18 @@ const App = {
                 const u = App.state.currentUser; const s = App.state.activeScan;
                 let userNotes = null;
                 if (s.category === 'sonder') {
-                    userNotes = window.prompt('Bitte Objektnamen/Notiz eingeben');
+                    userNotes = window.prompt('Bitte Objektnamen/Notiz eingeben (Sonderreinigung)');
+                    if (!userNotes || userNotes.trim() === '') {
+                        App.toast("⚠️ Abbruch: Notiz ist Pflicht für Sonderreinigung!");
+                        return;
+                    }
                 } else if (s.category === 'unterhalt') {
                     userNotes = 'Unterhaltsreinigung';
                 }
                 const log = await SupabaseDB.time_logs.checkIn({ worker_id: u.id, location_id: s.locId, category: s.category, notes: userNotes });
                 App.state.activeSession = { id: log.id, name: s.locName, locationId: s.locId, startTime: log.start_time, hours: 0 };
-                App.toast(`✅ EINGELOGGT: ${s.locName}`); if (App.state.currentUser.role === 'admin' || App.state.currentUser.role === 'chef') {
-                    App.renderView('dashboard');
-                } else {
-                    App.renderView('scanner');
-                }
+                App.toast(`✅ EINGELOGGT: ${s.locName}`);
+                App.renderView('dashboard');
              } catch (err) { App.toast("Fehler"); }
         },
 
