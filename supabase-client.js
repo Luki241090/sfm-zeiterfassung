@@ -205,11 +205,22 @@ const SupabaseDB = {
             return data;
         },
 
-        async checkOut(id) {
+        async checkOut(activeLogId, selectedPauseValue = 0, notes = null) {
+            let pauseInt = parseInt(selectedPauseValue, 10);
+            if (isNaN(pauseInt)) pauseInt = 0;
+            
+            const updatePayload = { 
+                end_time: new Date().toISOString(), 
+                break_minutes: pauseInt 
+            };
+            if (notes !== null) {
+                updatePayload.notes = notes;
+            }
+            
             const { data, error } = await SupabaseDB._getReadyClient()
                 .from('time_logs')
-                .update({ end_time: new Date().toISOString() })
-                .eq('id', id)
+                .update(updatePayload)
+                .eq('id', activeLogId)
                 .select()
                 .single();
             if (error) throw error;
@@ -281,6 +292,7 @@ const SupabaseDB = {
                     throw error;
                 }
 
+                window.currentTimesheetData = data;
                 return data || [];
             } catch (vErr) {
                 console.error("[Supabase Reports] Kritischer Sync Fehler:", vErr);

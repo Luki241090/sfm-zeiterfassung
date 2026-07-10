@@ -3,6 +3,8 @@
  * Custom Logo Integration & Professional PDF Engine
  */
 
+let globalTimesheetData = [];
+
 const App = {
     state: {
         currentUser: null,
@@ -21,7 +23,22 @@ const App = {
     init: async () => {
         // Service Worker registration
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').then(() => console.log('SFM ServiceWorker registered')).catch(e => console.error('SW Error', e));
+            navigator.serviceWorker.register('/sw.js').then((reg) => {
+                console.log('SFM ServiceWorker registered');
+                reg.addEventListener('updatefound', () => {
+                    const newWorker = reg.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'activated') {
+                            window.location.reload();
+                        }
+                    });
+                });
+            }).catch(e => console.error('SW Error', e));
+
+            // Reload when a waiting SW takes control (handles already-waiting SWs)
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                window.location.reload();
+            });
         }
 
         if (!Config.useMockData && typeof SupabaseDB !== 'undefined') {
@@ -320,6 +337,8 @@ const App = {
                 
                 App.toast("🔄 Synchronisiere...");
                 App.state.reportsData = await SupabaseDB.time_logs.getAllForAdmin() || [];
+                globalTimesheetData = App.state.reportsData;
+                window.currentTimesheetData = App.state.reportsData;
                 App.actions.filterReports();
             } catch (err) { 
                 console.error("Sync error:", err);
@@ -441,7 +460,7 @@ const App = {
                 const active = await SupabaseDB.time_logs.getActive(App.state.currentUser.id);
                 if (active) {
                     const diffHours = (new Date() - new Date(active.start_time)) / 3600000;
-                    App.state.activeSession = { id: active.id, name: active.employee_name || '?', locationId: active.location_id, startTime: active.start_time, hours: diffHours };
+                    App.state.activeSession = { id: active.id, name: active.employee_name || '?', locationId: active.location_id, category: active.category, startTime: active.start_time, hours: diffHours };
                 } else { App.state.activeSession = null; }
              } catch(e) {}
         },
@@ -472,17 +491,21 @@ const App = {
              try {
                 const u = App.state.currentUser; const s = App.state.activeScan;
                 let userNotes = null;
-                if (s.category === 'sonder') {
-                    userNotes = window.prompt('Bitte Objektnamen/Notiz eingeben (Sonderreinigung)');
-                    if (!userNotes || userNotes.trim() === '') {
-                        App.toast("⚠️ Abbruch: Notiz ist Pflicht für Sonderreinigung!");
-                        return;
-                    }
+                
+                if (s.category === 'leitung') {
+                    userNotes = 'Kontrolle';
                 } else if (s.category === 'unterhalt') {
                     userNotes = 'Unterhaltsreinigung';
+                } else if (s.category === 'sonder' || s.category === 'winter') {
+                    userNotes = window.prompt('Bitte Details/Tätigkeit eingeben');
+                    if (!userNotes || userNotes.trim() === '') {
+                        App.toast("⚠️ Abbruch: Notiz/Tätigkeit ist Pflicht!");
+                        return;
+                    }
                 }
+
                 const log = await SupabaseDB.time_logs.checkIn({ worker_id: u.id, location_id: s.locId, category: s.category, notes: userNotes });
-                App.state.activeSession = { id: log.id, name: s.locName, locationId: s.locId, startTime: log.start_time, hours: 0 };
+                App.state.activeSession = { id: log.id, name: s.locName, locationId: s.locId, category: s.category, startTime: log.start_time, hours: 0 };
                 App.toast(`✅ EINGELOGGT: ${s.locName}`);
                 App.renderView('dashboard');
              } catch (err) { App.toast("Fehler"); }
@@ -490,8 +513,64 @@ const App = {
 
         confirmCheckOut: async () => {
             const s = App.state.activeSession; if (!s) return;
+            
+            if (s.category === 'unterhalt' || s.category === 'sonder') {
+                 const m = document.getElementById('modal-container'); 
+                 if (m) {
+                     m.classList.remove('hidden');
+                     m.innerHTML = `
+                         <div class="bg-white p-12 rounded-[70px] w-full max-w-sm text-center flex flex-col items-center gap-6 shadow-3xl animate-in zoom-in-95">
+                             <span class="text-6xl mb-2">☕</span>
+                             <h2 class="text-3xl font-black italic tracking-tighter text-slate-900 uppercase">Pause wählen</h2>
+                             <p class="text-slate-400 font-bold text-xs">Bitte wähle deine Pausenzeit für diesen Dienst.</p>
+                             <div class="flex flex-col gap-4 w-full mt-4">
+                                 <button class="w-full py-5 bg-slate-100 rounded-[24px] text-slate-600 font-black uppercase text-[11px] hover:bg-slate-200 transition-all" onclick="App.actions.${s.category === 'unterhalt' ? 'showUnterhaltNotizModal' : 'processCheckOut'}(0)">Keine Pause</button>
+                                 <button class="w-full py-5 bg-primary/10 text-primary rounded-[24px] font-black uppercase text-[11px] hover:bg-primary/20 transition-all" onclick="App.actions.${s.category === 'unterhalt' ? 'showUnterhaltNotizModal' : 'processCheckOut'}(30)">30 Min Pause</button>
+                                 <button class="w-full py-5 bg-primary text-white rounded-[24px] font-black uppercase text-[11px] hover:bg-primary/80 transition-all shadow-xl" onclick="App.actions.${s.category === 'unterhalt' ? 'showUnterhaltNotizModal' : 'processCheckOut'}(60)">60 Min Pause</button>
+                             </div>
+                             <button class="text-slate-300 font-bold uppercase text-[9px] tracking-[0.4em] mt-4 underline" onclick="document.getElementById('modal-container').classList.add('hidden')">ABBRECHEN</button>
+                         </div>
+                     `;
+                     return;
+                 }
+            } else {
+                 App.actions.processCheckOut(0);
+            }
+        },
+
+        showUnterhaltNotizModal: (selectedPauseValue) => {
+            const m = document.getElementById('modal-container');
+            if (!m) return;
+            m.classList.remove('hidden');
+            m.innerHTML = `
+                <div class="bg-white p-12 rounded-[70px] w-full max-w-sm text-center flex flex-col items-center gap-6 shadow-3xl animate-in zoom-in-95">
+                    <span class="text-6xl mb-2">📝</span>
+                    <h2 class="text-3xl font-black italic tracking-tighter text-slate-900 uppercase">Notiz eingeben</h2>
+                    <p class="text-slate-400 font-bold text-xs">Bitte beschreibe kurz deine Tätigkeit (Pflichtfeld).</p>
+                    <textarea id="unterhalt-notiz-input" rows="3" placeholder="z. B. Büro gereinigt, Sanitäranlagen..." class="w-full p-4 border-2 border-slate-200 rounded-[20px] text-sm font-bold text-slate-700 focus:border-primary focus:outline-none transition-all resize-none"></textarea>
+                    <button class="w-full py-5 bg-primary text-white rounded-[24px] font-black uppercase text-[11px] hover:bg-primary/80 transition-all shadow-xl" onclick="App.actions.submitUnterhaltNotiz(${selectedPauseValue})">DIENST BEENDEN</button>
+                    <button class="text-slate-300 font-bold uppercase text-[9px] tracking-[0.4em] mt-2 underline" onclick="document.getElementById('modal-container').classList.add('hidden')">ABBRECHEN</button>
+                </div>
+            `;
+        },
+
+        submitUnterhaltNotiz: (selectedPauseValue) => {
+            const input = document.getElementById('unterhalt-notiz-input');
+            const notizText = input ? input.value.trim() : '';
+            if (!notizText) {
+                App.toast("⚠️ Bitte Notiz eingeben – Pflichtfeld!");
+                return;
+            }
+            const fullNotes = 'Unterhaltsreinigung: ' + notizText;
+            App.actions.processCheckOut(selectedPauseValue, fullNotes);
+        },
+
+        processCheckOut: async (selectedPauseValue, checkoutNotes = null) => {
+            const s = App.state.activeSession; if (!s) return;
+            const m = document.getElementById('modal-container');
+            if (m) m.classList.add('hidden');
             try {
-                await SupabaseDB.time_logs.checkOut(s.id);
+                await SupabaseDB.time_logs.checkOut(s.id, selectedPauseValue, checkoutNotes);
                 document.getElementById('status-card').innerHTML = `<div class="text-center p-8"><div class="text-8xl mb-12 animate-bounce">🎬</div><h4 class="text-3xl font-black italic mb-10 italic uppercase font-sans">Dienst beendet</h4><button class="w-full bg-primary text-white py-7 rounded-3xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all" onclick="App.renderView('dashboard')">ZURÜCK HUB</button></div>`;
                 App.state.activeSession = null;
             } catch (err) { App.toast("Error"); }
@@ -586,42 +665,45 @@ const App = {
                 });
             };
 
-            let totalHours = 0;
-            const rows = data.map(log => {
-                const start = new Date(log.start_time); 
-                const end = log.end_time ? new Date(log.end_time) : null;
-                
-                // Nutze duration_hours aus der View, falls vorhanden, sonst berechne live
-                let hrs = log.duration_hours;
-                if (hrs === undefined || hrs === null || (hrs === 0 && !log.end_time)) {
-                    let diffMs = (end ? end.getTime() : Date.now()) - start.getTime();
-                    hrs = Math.max(0, diffMs / 3600000);
+            data.forEach(item => {
+                if (item.net_duration_hours === undefined || item.net_duration_hours === null) {
+                    if (item.duration_hours !== undefined && item.duration_hours !== null) {
+                        item.net_duration_hours = Math.max(0, item.duration_hours - ((item.break_minutes || 0) / 60));
+                    } else {
+                        const evtEnd = item.end_time ? new Date(item.end_time) : new Date();
+                        let diffMs = evtEnd.getTime() - new Date(item.start_time).getTime();
+                        item.net_duration_hours = Math.max(0, (diffMs - ((item.break_minutes || 0) * 60000)) / 3600000);
+                    }
                 }
-                
-                totalHours += hrs; 
-                const h = Math.floor(hrs); 
-                const m = Math.round((hrs - h) * 60);
+            });
 
-                // EXAKTE LOGIK WIE VOM USER GEWÜNSCHT
-                const displayName = log.full_name || log.employee_name || log.email || 'Kein Name';
+            const totalHours = data.reduce((sum, item) => sum + Number(item.net_duration_hours || 0), 0);
+            
+            const rows = data.map(item => {
+                const h = Math.floor(item.net_duration_hours || 0);
+                const m = Math.round(((item.net_duration_hours || 0) % 1) * 60);
+
+                const displayName = item.employee_name || 'Kein Name';
                 return `
                 <tr class="bg-white hover:bg-slate-50 transition-all border-b border-white-50">
                     <td class="p-7 text-left"><span class="text-2xl font-black italic tracking-tighter text-slate-800 italic uppercase">${displayName}</span></td>
-                    <td class="p-7 text-left text-slate-300 font-black italic tracking-tight uppercase">${log.location_name || '-'}</td>
-                    <td class="p-7 text-left text-slate-500 font-medium italic text-xs">${log.notes || '-'}</td>
+                    <td class="p-7 text-left text-slate-300 font-black italic tracking-tight uppercase">${item.location_name || '-'}</td>
+                    <td class="p-7 text-left text-slate-500 font-medium italic text-xs">${item.notes || '-'}</td>
                     <td class="p-7 text-slate-600 font-bold text-xs">
                         <div class="flex flex-col gap-1">
-                            <span>${formatDate(log.start_time)}</span>
-                            <span class="${!log.end_time ? 'text-primary animate-pulse' : 'text-slate-400'}">${log.end_time ? formatDate(log.end_time) : 'AKTIV...'}</span>
+                            <span>${formatDate(item.start_time)}</span>
+                            <span class="${!item.end_time ? 'text-primary animate-pulse' : 'text-slate-400'}">${item.end_time ? formatDate(item.end_time) : 'AKTIV...'}</span>
                         </div>
                     </td>
+                    <td class="p-7 text-center font-bold text-slate-500 text-sm italic">${item.break_minutes && item.break_minutes > 0 ? item.break_minutes + ' Min' : '-'}</td>
                     <td class="p-7 text-center font-black italic text-slate-800 text-3xl italic">${h}h ${m}m</td>
                     <td class="p-7 text-right">
-                        <button class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold p-3 rounded-2xl transition-all active:scale-95 shadow-sm text-[10px] uppercase" onclick="App.actions.editTimeLog('${log.id}')">✏️ Edit</button>
+                        <button class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold p-3 rounded-2xl transition-all active:scale-95 shadow-sm text-[10px] uppercase" onclick="App.actions.editTimeLog('${item.id}')">✏️ Edit</button>
                     </td>
                 </tr>`;
             }).join('');
-            container.innerHTML = `<table class="w-full text-left font-bold border-separate border-spacing-y-4"><thead class="text-slate-200 uppercase text-[10px] tracking-[0.4em] italic text-left"><tr><th class="p-7">Mitarbeiter</th><th class="p-7">Objekt</th><th class="p-7">Notiz/Typ</th><th class="p-7">Zeitraum (Von/Bis)</th><th class="p-7 text-center">Netto</th><th class="p-7 text-right">Aktion</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="bg-primary/5 rounded-[48px]"><td colspan="5" class="p-10 text-right text-slate-300 font-black uppercase tracking-[0.3em] italic">Gesamtstunden:</td><td class="p-10 text-center text-5xl font-black text-primary italic tracking-tighter">${totalHours.toFixed(2)} h</td></tr></tfoot></table>`;
+            const th = Math.floor(totalHours); const tm = Math.round((totalHours % 1) * 60);
+            container.innerHTML = `<table class="w-full text-left font-bold border-separate border-spacing-y-4"><thead class="text-slate-200 uppercase text-[10px] tracking-[0.4em] italic text-left"><tr><th class="p-7">Mitarbeiter</th><th class="p-7">Objekt</th><th class="p-7 min-w-[150px]">Notiz/Typ</th><th class="p-7">Zeitraum (Von/Bis)</th><th class="p-7 text-center">Pause</th><th class="p-7 text-center">Netto</th><th class="p-7 text-right">Aktion</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="bg-primary/5 rounded-[48px]"><td colspan="6" class="p-10 text-right text-slate-300 font-black uppercase tracking-[0.3em] italic">Gesamtstunden:</td><td class="p-10 text-center text-5xl font-black text-primary italic tracking-tighter">${th}h ${tm}m</td></tr></tfoot></table>`;
         },
 
         editTimeLog: async (logId) => {
@@ -691,12 +773,15 @@ const App = {
                 const d = new Date(log.start_time);
                 return name.includes(qName) && loc.includes(qLoc) && (m === "" || d.getMonth().toString() === m);
             });
+            globalTimesheetData = App.state.filteredReports;
+            window.currentTimesheetData = App.state.filteredReports;
             App.actions.renderReportsTable(App.state.filteredReports);
         },
 
         // --- PDF ENGINE (FINAL BRANDING) ---
         exportReportsPDF: () => {
-             const data = App.state.filteredReports; if (!data.length) return App.toast("Keine Daten.");
+             const data = globalTimesheetData;
+             if (!data || !data.length) return App.toast("Keine Daten.");
              
              const locSearch = document.getElementById('report-search-loc').value;
              document.getElementById('p-report-location').textContent = locSearch ? locSearch.toUpperCase() : "ALLE AKTIVEN OBJEKTE";
@@ -708,18 +793,47 @@ const App = {
              const monthText = monthSelect.options[monthSelect.selectedIndex].text;
              document.getElementById('p-report-period').textContent = `${monthText} / ${new Date().getFullYear()}`;
              
-             let total = 0;
-             const rows = data.map(l => {
-                 const s = new Date(l.start_time); const e = l.end_time ? new Date(l.end_time) : null;
-                 // EXAKTE LOGIK WIE VOM USER GEWÜNSCHT
-                 const displayName = l.full_name || l.employee_name || l.email || 'Kein Name';
-                 const h = l.duration_hours || (e ? (e.getTime()-s.getTime())/3600000 : (Date.now()-s.getTime())/3600000); 
-                 total += h;
-                 return `<tr><td>${displayName}</td><td>${l.location_name || '-'}</td><td>${l.notes || '-'}</td><td>${s.toLocaleDateString('de-AT')}</td><td>${s.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'})} - ${e ? e.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'}) : 'AKTIV'}</td><td class="font-bold">${h.toFixed(2)} h</td></tr>`;
+             data.forEach(item => {
+                 if (item.net_duration_hours === undefined || item.net_duration_hours === null) {
+                     if (item.duration_hours !== undefined && item.duration_hours !== null) {
+                         item.net_duration_hours = Math.max(0, item.duration_hours - ((item.break_minutes || 0) / 60));
+                     } else {
+                         const evtEnd = item.end_time ? new Date(item.end_time) : new Date();
+                         let diffMs = evtEnd.getTime() - new Date(item.start_time).getTime();
+                         item.net_duration_hours = Math.max(0, (diffMs - ((item.break_minutes || 0) * 60000)) / 3600000);
+                     }
+                 }
              });
 
-             document.getElementById('p-report-table-container').innerHTML = `<table><thead><tr><th width="20%">Mitarbeiter</th><th width="20%">Objekt</th><th width="15%">Notiz/Typ</th><th width="15%">Datum</th><th width="20%">Zeitraum</th><th width="10%">Stunden</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
-             document.getElementById('p-report-total-box').textContent = `GESAMT STUNDEN: ${total.toFixed(2)} h`;
+             const totalNetto = data.reduce((sum, item) => sum + Number(item.net_duration_hours || 0), 0);
+             const pauseMins = data.reduce((sum, item) => sum + Number(item.break_minutes || 0), 0);
+             const totalPause = pauseMins / 60;
+             const totalBrutto = totalNetto + totalPause;
+             
+             const formatTime = (hrs) => `${Math.floor(hrs)}h ${Math.round((hrs % 1) * 60)}m`;
+
+             const rows = data.map(row => {
+                 const s = new Date(row.start_time); const e = row.end_time ? new Date(row.end_time) : null;
+                 const displayName = row.employee_name || 'Kein Name';
+                 
+                 return `<tr><td>${displayName}</td><td>${row.location_name || '-'}</td><td style="width: 220px; white-space: normal; word-wrap: break-word;">${row.notes || '-'}</td><td>${s.toLocaleDateString('de-AT')}</td><td>${s.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'})} - ${e ? e.toLocaleTimeString('de-AT', {hour:'2-digit', minute:'2-digit'}) : 'AKTIV'}</td><td>${row.break_minutes > 0 ? row.break_minutes + ' Min' : '-'}</td><td>${formatTime(row.net_duration_hours || 0)}</td></tr>`;
+             });
+
+             document.getElementById('p-report-table-container').innerHTML = `<table><thead><tr><th width="15%">Mitarbeiter</th><th width="15%">Objekt</th><th style="min-width: 180px; white-space: nowrap;">Notiz/Typ</th><th width="10%">Datum</th><th width="12%">Zeitraum (Von-Bis)</th><th width="8%">Pause</th><th width="10%">Stunden</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+             document.getElementById('p-report-total-box').innerHTML = `
+                <div style="display:flex; justify-content:flex-end; gap: 2rem; margin-top: 1rem; width:100%; border-top: 2px solid #ddd; padding-top:1rem;">
+                    <div style="text-align: right;">
+                        <p style="margin: 0; font-size: 10px; color: #666; text-transform: uppercase;">Gesamtzeit (Brutto):</p>
+                        <p style="margin: 0; font-size: 10px; color: #666; text-transform: uppercase;">Pausen gesamt:</p>
+                        <p style="margin: 0; font-size: 14px; color: #000; font-weight: bold; text-transform: uppercase; margin-top: 4px;">Netto-Arbeitszeit:</p>
+                    </div>
+                    <div style="text-align: right; min-width: 80px;">
+                        <p style="margin: 0; font-size: 10px; color: #666;">${formatTime(totalBrutto)}</p>
+                        <p style="margin: 0; font-size: 10px; color: #666;">${formatTime(totalPause)}</p>
+                        <p style="margin: 0; font-size: 14px; color: #000; font-weight: bold; margin-top: 4px;">${formatTime(totalNetto)}</p>
+                    </div>
+                </div>
+             `;
              
              document.body.classList.add('print-mode-report');
              window.print();
