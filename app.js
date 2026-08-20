@@ -302,19 +302,40 @@ const App = {
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-8 px-4 text-left">
                         <div class="bg-white p-8 rounded-[40px] shadow-premium border border-white flex flex-col gap-4">
-                            <label class="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4 italic italic uppercase">Mitarbeiter</label>
+                            <label class="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4 italic uppercase">Mitarbeiter</label>
                             <input type="text" id="report-search-name" class="w-full p-5 bg-slate-50 rounded-3xl font-bold border-none placeholder-slate-200 shadow-inner" placeholder="Suchen..." oninput="App.actions.filterReports()">
                         </div>
                         <div class="bg-white p-8 rounded-[40px] shadow-premium border border-white flex flex-col gap-4">
-                            <label class="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4 italic italic uppercase">Objekt / Location</label>
+                            <label class="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4 italic uppercase">Objekt / Location</label>
                             <input type="text" id="report-search-loc" class="w-full p-5 bg-slate-50 rounded-3xl font-bold border-none placeholder-slate-200 shadow-inner" placeholder="Objekt suchen..." oninput="App.actions.filterReports()">
                         </div>
                         <div class="bg-white p-8 rounded-[40px] shadow-premium border border-white flex flex-col gap-4">
-                            <label class="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4 italic italic uppercase">Berichtsmonat</label>
+                            <label class="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4 italic uppercase">Berichtsmonat</label>
                             <select id="report-month" class="w-full p-5 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" onchange="App.actions.filterReports()">
                                 <option value="">Alle Monatswerte</option>
                                 <option value="0">Januar</option><option value="1">Februar</option><option value="2">März</option><option value="3">April</option><option value="4">Mai</option><option value="5">Juni</option><option value="6">Juli</option><option value="7">August</option><option value="8">September</option><option value="9">Oktober</option><option value="10">November</option><option value="11">Dezember</option>
                             </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 px-4 text-left">
+                        <div class="bg-white p-8 rounded-[40px] shadow-premium border border-white flex flex-col gap-4">
+                            <label class="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4 italic uppercase">Kategorie</label>
+                            <select id="report-category" class="w-full p-5 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" onchange="App.actions.filterReports()">
+                                <option value="">Alle Kategorien</option>
+                                <option value="unterhalt">Unterhaltsreinigung</option>
+                                <option value="sonder">Sonderreinigung</option>
+                                <option value="winter">Winterdienst</option>
+                                <option value="leitung">Kontrolle</option>
+                            </select>
+                        </div>
+                        <div class="bg-white p-8 rounded-[40px] shadow-premium border border-white flex flex-col gap-4">
+                            <label class="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4 italic uppercase">Von Datum</label>
+                            <input type="date" id="report-date-from" class="w-full p-5 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" onchange="App.actions.filterReports()">
+                        </div>
+                        <div class="bg-white p-8 rounded-[40px] shadow-premium border border-white flex flex-col gap-4">
+                            <label class="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4 italic uppercase">Bis Datum</label>
+                            <input type="date" id="report-date-to" class="w-full p-5 bg-slate-50 rounded-3xl font-bold border-none shadow-inner" onchange="App.actions.filterReports()">
                         </div>
                     </div>
 
@@ -514,7 +535,8 @@ const App = {
         confirmCheckOut: async () => {
             const s = App.state.activeSession; if (!s) return;
             
-            if (s.category === 'unterhalt' || s.category === 'sonder') {
+            if (s.category === 'unterhalt' || s.category === 'sonder' || s.category === 'winter') {
+                 const nextAction = s.category === 'unterhalt' ? 'showUnterhaltNotizModal' : (s.category === 'winter' ? 'showWinterdienstCheckboxModal' : 'processCheckOut');
                  const m = document.getElementById('modal-container'); 
                  if (m) {
                      m.classList.remove('hidden');
@@ -524,9 +546,9 @@ const App = {
                              <h2 class="text-3xl font-black italic tracking-tighter text-slate-900 uppercase">Pause wählen</h2>
                              <p class="text-slate-400 font-bold text-xs">Bitte wähle deine Pausenzeit für diesen Dienst.</p>
                              <div class="flex flex-col gap-4 w-full mt-4">
-                                 <button class="w-full py-5 bg-slate-100 rounded-[24px] text-slate-600 font-black uppercase text-[11px] hover:bg-slate-200 transition-all" onclick="App.actions.${s.category === 'unterhalt' ? 'showUnterhaltNotizModal' : 'processCheckOut'}(0)">Keine Pause</button>
-                                 <button class="w-full py-5 bg-primary/10 text-primary rounded-[24px] font-black uppercase text-[11px] hover:bg-primary/20 transition-all" onclick="App.actions.${s.category === 'unterhalt' ? 'showUnterhaltNotizModal' : 'processCheckOut'}(30)">30 Min Pause</button>
-                                 <button class="w-full py-5 bg-primary text-white rounded-[24px] font-black uppercase text-[11px] hover:bg-primary/80 transition-all shadow-xl" onclick="App.actions.${s.category === 'unterhalt' ? 'showUnterhaltNotizModal' : 'processCheckOut'}(60)">60 Min Pause</button>
+                                 <button class="w-full py-5 bg-slate-100 rounded-[24px] text-slate-600 font-black uppercase text-[11px] hover:bg-slate-200 transition-all" onclick="App.actions.${nextAction}(0)">Keine Pause</button>
+                                 <button class="w-full py-5 bg-primary/10 text-primary rounded-[24px] font-black uppercase text-[11px] hover:bg-primary/20 transition-all" onclick="App.actions.${nextAction}(30)">30 Min Pause</button>
+                                 <button class="w-full py-5 bg-primary text-white rounded-[24px] font-black uppercase text-[11px] hover:bg-primary/80 transition-all shadow-xl" onclick="App.actions.${nextAction}(60)">60 Min Pause</button>
                              </div>
                              <button class="text-slate-300 font-bold uppercase text-[9px] tracking-[0.4em] mt-4 underline" onclick="document.getElementById('modal-container').classList.add('hidden')">ABBRECHEN</button>
                          </div>
@@ -562,6 +584,106 @@ const App = {
                 return;
             }
             const fullNotes = 'Unterhaltsreinigung: ' + notizText;
+            App.actions.processCheckOut(selectedPauseValue, fullNotes);
+        },
+
+        showWinterdienstCheckboxModal: (selectedPauseValue) => {
+            const m = document.getElementById('modal-container');
+            if (!m) return;
+            m.classList.remove('hidden');
+            m.innerHTML = `
+                <div class="bg-white p-12 rounded-[70px] w-full max-w-sm text-center flex flex-col items-center gap-6 shadow-3xl animate-in zoom-in-95">
+                    <span class="text-6xl mb-2">❄️</span>
+                    <h2 class="text-3xl font-black italic tracking-tighter text-slate-900 uppercase">Winterdienst</h2>
+                    <p class="text-slate-400 font-bold text-xs">Welche Tätigkeiten wurden durchgeführt?</p>
+                    <div class="flex flex-col gap-4 w-full mt-2 text-left">
+                        <label class="flex items-center gap-4 p-4 bg-slate-50 rounded-[20px] cursor-pointer hover:bg-primary/5 transition-all group">
+                            <input type="checkbox" id="wd-raeumen" value="Räumen" class="w-6 h-6 accent-primary rounded-lg cursor-pointer">
+                            <span class="font-black text-sm text-slate-700 uppercase tracking-wide group-hover:text-primary transition-colors">Räumen</span>
+                        </label>
+                        <label class="flex items-center gap-4 p-4 bg-slate-50 rounded-[20px] cursor-pointer hover:bg-primary/5 transition-all group">
+                            <input type="checkbox" id="wd-streuen" value="Streuen" class="w-6 h-6 accent-primary rounded-lg cursor-pointer">
+                            <span class="font-black text-sm text-slate-700 uppercase tracking-wide group-hover:text-primary transition-colors">Streuen</span>
+                        </label>
+                        <label class="flex items-center gap-4 p-4 bg-slate-50 rounded-[20px] cursor-pointer hover:bg-primary/5 transition-all group">
+                            <input type="checkbox" id="wd-kontrolle" value="Kontrolle" class="w-6 h-6 accent-primary rounded-lg cursor-pointer">
+                            <span class="font-black text-sm text-slate-700 uppercase tracking-wide group-hover:text-primary transition-colors">Kontrolle</span>
+                        </label>
+                    </div>
+                    <button class="w-full py-5 bg-primary text-white rounded-[24px] font-black uppercase text-[11px] hover:bg-primary/80 transition-all shadow-xl" onclick="App.actions.submitWinterdienstCheckout(${selectedPauseValue})">DIENST BEENDEN</button>
+                    <button class="text-slate-300 font-bold uppercase text-[9px] tracking-[0.4em] mt-2 underline" onclick="document.getElementById('modal-container').classList.add('hidden')">ABBRECHEN</button>
+                </div>
+            `;
+        },
+
+        submitWinterdienstCheckout: (selectedPauseValue) => {
+            const selected = [];
+            if (document.getElementById('wd-raeumen')?.checked) selected.push('Räumen');
+            if (document.getElementById('wd-streuen')?.checked) selected.push('Streuen');
+            if (document.getElementById('wd-kontrolle')?.checked) selected.push('Kontrolle');
+            if (selected.length === 0) {
+                App.toast("⚠️ Bitte mindestens eine Tätigkeit auswählen!");
+                return;
+            }
+            // If Streuen is selected, ask for Streugut first
+            if (selected.includes('Streuen')) {
+                App.actions.showStreugutModal(selectedPauseValue, selected);
+            } else {
+                const fullNotes = 'Winterdienst: ' + selected.join(', ');
+                App.actions.processCheckOut(selectedPauseValue, fullNotes);
+            }
+        },
+
+        showStreugutModal: (selectedPauseValue, selectedTasks) => {
+            const m = document.getElementById('modal-container');
+            if (!m) return;
+            m.classList.remove('hidden');
+            // Store selected tasks in a data attribute for the submit function
+            m.dataset.wdTasks = JSON.stringify(selectedTasks);
+            m.dataset.wdPause = selectedPauseValue;
+            m.innerHTML = `
+                <div class="bg-white p-12 rounded-[70px] w-full max-w-sm text-center flex flex-col items-center gap-6 shadow-3xl animate-in zoom-in-95">
+                    <span class="text-6xl mb-2">🧂</span>
+                    <h2 class="text-3xl font-black italic tracking-tighter text-slate-900 uppercase">Streugut</h2>
+                    <p class="text-slate-400 font-bold text-xs">Welches Streumaterial wurde verwendet?</p>
+                    <div class="flex flex-col gap-4 w-full mt-2 text-left">
+                        <label class="flex items-center gap-4 p-4 bg-slate-50 rounded-[20px] cursor-pointer hover:bg-primary/5 transition-all group">
+                            <input type="checkbox" id="sg-carbon" value="Carbon" class="w-6 h-6 accent-primary rounded-lg cursor-pointer">
+                            <span class="font-black text-sm text-slate-700 uppercase tracking-wide group-hover:text-primary transition-colors">Carbon</span>
+                        </label>
+                        <label class="flex items-center gap-4 p-4 bg-slate-50 rounded-[20px] cursor-pointer hover:bg-primary/5 transition-all group">
+                            <input type="checkbox" id="sg-salz" value="Salz" class="w-6 h-6 accent-primary rounded-lg cursor-pointer">
+                            <span class="font-black text-sm text-slate-700 uppercase tracking-wide group-hover:text-primary transition-colors">Salz</span>
+                        </label>
+                        <label class="flex items-center gap-4 p-4 bg-slate-50 rounded-[20px] cursor-pointer hover:bg-primary/5 transition-all group">
+                            <input type="checkbox" id="sg-stein" value="Stein" class="w-6 h-6 accent-primary rounded-lg cursor-pointer">
+                            <span class="font-black text-sm text-slate-700 uppercase tracking-wide group-hover:text-primary transition-colors">Stein</span>
+                        </label>
+                    </div>
+                    <button class="w-full py-5 bg-primary text-white rounded-[24px] font-black uppercase text-[11px] hover:bg-primary/80 transition-all shadow-xl" onclick="App.actions.submitStreugutCheckout()">DIENST BEENDEN</button>
+                    <button class="text-slate-300 font-bold uppercase text-[9px] tracking-[0.4em] mt-2 underline" onclick="document.getElementById('modal-container').classList.add('hidden')">ABBRECHEN</button>
+                </div>
+            `;
+        },
+
+        submitStreugutCheckout: () => {
+            const m = document.getElementById('modal-container');
+            const selectedTasks = JSON.parse(m?.dataset.wdTasks || '[]');
+            const selectedPauseValue = parseInt(m?.dataset.wdPause || '0', 10);
+
+            const streugut = [];
+            if (document.getElementById('sg-carbon')?.checked) streugut.push('Carbon');
+            if (document.getElementById('sg-salz')?.checked) streugut.push('Salz');
+            if (document.getElementById('sg-stein')?.checked) streugut.push('Stein');
+            if (streugut.length === 0) {
+                App.toast("⚠️ Bitte mindestens ein Streumaterial auswählen!");
+                return;
+            }
+            // Build notes: replace "Streuen" with "Streuen (Carbon, Salz)"
+            const parts = selectedTasks.map(task =>
+                task === 'Streuen' ? `Streuen (${streugut.join(', ')})` : task
+            );
+            const fullNotes = 'Winterdienst: ' + parts.join(', ');
             App.actions.processCheckOut(selectedPauseValue, fullNotes);
         },
 
@@ -767,11 +889,23 @@ const App = {
             const qName = document.getElementById('report-search-name').value.toLowerCase();
             const qLoc = document.getElementById('report-search-loc').value.toLowerCase();
             const m = document.getElementById('report-month').value;
+            const qCat = document.getElementById('report-category')?.value || '';
+            const dateFrom = document.getElementById('report-date-from')?.value;
+            const dateTo = document.getElementById('report-date-to')?.value;
+
+            const fromTs = dateFrom ? new Date(dateFrom).setHours(0, 0, 0, 0) : null;
+            const toTs = dateTo ? new Date(dateTo).setHours(23, 59, 59, 999) : null;
+
             App.state.filteredReports = App.state.reportsData.filter(log => {
                 const name = (log.employee_name || '').toLowerCase();
                 const loc = (log.location_name || '').toLowerCase();
                 const d = new Date(log.start_time);
-                return name.includes(qName) && loc.includes(qLoc) && (m === "" || d.getMonth().toString() === m);
+                const dTs = d.getTime();
+                const catMatch = qCat === '' || (log.category || '').toLowerCase() === qCat;
+                const monthMatch = m === "" || d.getMonth().toString() === m;
+                const fromMatch = fromTs === null || dTs >= fromTs;
+                const toMatch = toTs === null || dTs <= toTs;
+                return name.includes(qName) && loc.includes(qLoc) && monthMatch && catMatch && fromMatch && toMatch;
             });
             globalTimesheetData = App.state.filteredReports;
             window.currentTimesheetData = App.state.filteredReports;
@@ -792,6 +926,19 @@ const App = {
              const monthSelect = document.getElementById('report-month');
              const monthText = monthSelect.options[monthSelect.selectedIndex].text;
              document.getElementById('p-report-period').textContent = `${monthText} / ${new Date().getFullYear()}`;
+
+             // Filter-Info für PDF-Kopfzeile
+             const catSelect = document.getElementById('report-category');
+             const catText = catSelect && catSelect.value ? catSelect.options[catSelect.selectedIndex].text : 'Alle Kategorien';
+             const dateFrom = document.getElementById('report-date-from')?.value;
+             const dateTo = document.getElementById('report-date-to')?.value;
+             const formatDateDE = (iso) => iso ? iso.split('-').reverse().join('.') : null;
+             let filterLine = `Kategorie: ${catText}`;
+             if (dateFrom || dateTo) {
+                 filterLine += ` | Zeitraum: ${formatDateDE(dateFrom) || '–'} - ${formatDateDE(dateTo) || '–'}`;
+             }
+             const filterInfoEl = document.getElementById('p-report-filter-info');
+             if (filterInfoEl) filterInfoEl.textContent = filterLine;
              
              data.forEach(item => {
                  if (item.net_duration_hours === undefined || item.net_duration_hours === null) {
