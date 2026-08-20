@@ -422,17 +422,27 @@ const App = {
         },
         geocodeAddress: async () => {
             const addr = document.getElementById('loc-address').value.trim();
-            if (addr.length < 5) return;
+            if (addr.length < 5) return null;
             try {
-                const ep = "https://nominatim.openstreetmap.org/search?format=json&q=" + encodeURIComponent(addr);
-                const r = await fetch(ep);
+                const ep = "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(addr);
+                const r = await fetch(ep, { headers: { 'Accept': 'application/json' } });
                 const d = await r.json();
                 if (d && d.length > 0) {
-                    document.getElementById('loc-lat').value = parseFloat(d[0].lat).toFixed(6);
-                    document.getElementById('loc-lng').value = parseFloat(d[0].lon).toFixed(6);
+                    const lat = parseFloat(d[0].lat).toFixed(6);
+                    const lng = parseFloat(d[0].lon).toFixed(6);
+                    document.getElementById('loc-lat').value = lat;
+                    document.getElementById('loc-lng').value = lng;
                     App.toast("📍 Koordinaten gefunden!");
+                    return { lat: parseFloat(lat), lng: parseFloat(lng) };
+                } else {
+                    App.toast("⚠️ Adresse konnte auf der Karte nicht gefunden werden – bitte prüfen.");
+                    return null;
                 }
-            } catch(e) { console.error("GEO ERR", e); }
+            } catch(e) {
+                console.error("GEO ERR", e);
+                App.toast("⚠️ Geocoding fehlgeschlagen – Koordinaten manuell eintragen.");
+                return null;
+            }
         },
         login: async () => {
              const email = document.getElementById('email-input').value.trim();
@@ -1052,9 +1062,35 @@ const App = {
              }
         },
         saveLocation: async () => {
-             const input = { customer_number: document.getElementById('loc-customer-num').value.trim(), name: document.getElementById('loc-name').value.trim(), address: document.getElementById('loc-address').value.trim(), floor: document.getElementById('loc-floor').value.trim(), contact_person: document.getElementById('loc-contact').value.trim(), coords_lat: parseFloat(document.getElementById('loc-lat').value) || null, coords_lng: parseFloat(document.getElementById('loc-lng').value) || null };
-             if (!input.name || !input.address) return App.toast("⚠️ Daten unvollständig!");
-             try { const l = await SupabaseDB.locations.create(input); App.toast("✅ Gespeichert!"); App.actions.loadLocations(); App.actions.previewQR(l.id, l.name, l.address); } catch (err) { App.toast("Fehler"); }
+             const name = document.getElementById('loc-name').value.trim();
+             const address = document.getElementById('loc-address').value.trim();
+             if (!name || !address) return App.toast("⚠️ Daten unvollständig!");
+
+             let coords_lat = parseFloat(document.getElementById('loc-lat').value) || null;
+             let coords_lng = parseFloat(document.getElementById('loc-lng').value) || null;
+
+             if (!coords_lat || !coords_lng) {
+                 App.toast("🔍 Adresse wird gesucht...");
+                 const geo = await App.actions.geocodeAddress();
+                 if (geo) { coords_lat = geo.lat; coords_lng = geo.lng; }
+             }
+
+             const input = {
+                 customer_number: document.getElementById('loc-customer-num').value.trim(),
+                 name,
+                 address,
+                 floor: document.getElementById('loc-floor').value.trim(),
+                 contact_person: document.getElementById('loc-contact').value.trim(),
+                 coords_lat,
+                 coords_lng
+             };
+
+             try {
+                 const l = await SupabaseDB.locations.create(input);
+                 App.toast("✅ Gespeichert!" + (coords_lat ? " 📍 Karte aktualisiert." : " ⚠️ Ohne Koordinaten gespeichert."));
+                 App.actions.loadLocations();
+                 App.actions.previewQR(l.id, l.name, l.address);
+             } catch (err) { App.toast("Fehler beim Speichern."); }
         },
         previewQR: async (id, name, address) => {
              const r = document.getElementById('qr-result'); 
