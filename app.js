@@ -896,15 +896,30 @@ const App = {
             const fromTs = dateFrom ? new Date(dateFrom).setHours(0, 0, 0, 0) : null;
             const toTs = dateTo ? new Date(dateTo).setHours(23, 59, 59, 999) : null;
 
+            const catKeywords = {
+                'unterhalt': ['unterhalt'],
+                'sonder':    ['sonder'],
+                'winter':    ['winter', 'räumen', 'streuen'],
+                'leitung':   ['kontrolle'],
+            };
+
             App.state.filteredReports = App.state.reportsData.filter(log => {
                 const name = (log.employee_name || '').toLowerCase();
                 const loc = (log.location_name || '').toLowerCase();
                 const d = new Date(log.start_time);
                 const dTs = d.getTime();
-                const catMatch = qCat === '' || (log.category || '').toLowerCase() === qCat;
                 const monthMatch = m === "" || d.getMonth().toString() === m;
                 const fromMatch = fromTs === null || dTs >= fromTs;
                 const toMatch = toTs === null || dTs <= toTs;
+
+                let catMatch = true;
+                if (qCat !== '') {
+                    const keywords = catKeywords[qCat] || [qCat];
+                    const catField = (log.category || '').toLowerCase();
+                    const notesField = (log.notes || '').toLowerCase();
+                    catMatch = keywords.some(kw => catField.includes(kw) || notesField.includes(kw));
+                }
+
                 return name.includes(qName) && loc.includes(qLoc) && monthMatch && catMatch && fromMatch && toMatch;
             });
             globalTimesheetData = App.state.filteredReports;
